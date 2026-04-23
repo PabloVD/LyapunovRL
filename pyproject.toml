@@ -1,0 +1,22 @@
+[project]
+name = "lyapunovproject"
+version = "0.1.0"
+description = "Lyapunov-based value function for reinforcement learning"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "torch>=2.3.0",
+    "numpy>=1.26",
+    "gymnasium[classic_control]>=0.29",
+    "matplotlib>=3.8",
+    "tensorboard>=2.17",
+    "tqdm>=4.66",
+]
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu124" }
+
+[[tool.uv.index]]
+name = "pytorch-cu124"
+url = "https://download.pytorch.org/whl/cu124"
+explicit = true
