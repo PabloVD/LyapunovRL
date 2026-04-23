@@ -16,12 +16,14 @@ import torch
 from tensorboard.backend.event_processing.event_accumulator import EventAccumulator
 
 from envs.base import LyapunovWrapper
+from envs.mountain_car import LyapunovMountainCar
 from envs.pendulum import LyapunovPendulum
 from models.actor import Actor
 from models.critic import make_critic
 
 ENV_REGISTRY: dict[str, type[LyapunovWrapper]] = {
     "Pendulum-v1": LyapunovPendulum,
+    "MountainCarContinuous-v0": LyapunovMountainCar,
 }
 
 COLORS = {"A": "#4C72B0", "B": "#DD8452"}
@@ -65,11 +67,16 @@ def collect_curves(runs_dir: str, tag: str, n_seeds: int = 5):
 def align_curves(seed_curves, n_points=300):
     if not seed_curves:
         return None, None, None
-    all_steps = np.concatenate([s for s, _ in seed_curves])
-    grid = np.linspace(all_steps.min(), all_steps.max(), n_points)
-    interpolated = [np.interp(grid, steps, values) for steps, values in seed_curves if len(steps) >= 2]
-    if not interpolated:
+    valid = [(s, v) for s, v in seed_curves if len(s) >= 2]
+    if not valid:
         return None, None, None
+    # Use the intersection of all seeds' step ranges so no seed is extrapolated.
+    step_lo = max(s.min() for s, _ in valid)
+    step_hi = min(s.max() for s, _ in valid)
+    if step_lo >= step_hi:
+        return None, None, None
+    grid = np.linspace(step_lo, step_hi, n_points)
+    interpolated = [np.interp(grid, steps, values) for steps, values in valid]
     arr = np.stack(interpolated)
     return grid, arr.mean(0), arr.std(0)
 
@@ -100,15 +107,12 @@ def eval_policy(actor: Actor, env: LyapunovWrapper, n_episodes: int = 10, device
 # ── Value grid ────────────────────────────────────────────────────────────────
 
 def value_grid(critic, env_class: type[LyapunovWrapper], device, n=50):
-    theta = np.linspace(-np.pi, np.pi, n)
-    theta_dot = np.linspace(-8.0, 8.0, n)
-    TH, TD = np.meshgrid(theta, theta_dot)
-    states = np.stack([np.cos(TH), np.sin(TH), TD], axis=-1).reshape(-1, 3).astype(np.float32)
+    ax1, ax2, states = env_class.state_grid(n)
     states_t = torch.tensor(states, device=device)
     with torch.no_grad():
         phi_vals = env_class.phi_torch(states_t).cpu().numpy().reshape(n, n)
         v_vals = critic(states_t).cpu().numpy().reshape(n, n)
-    return TH, TD, phi_vals, v_vals
+    return ax1, ax2, phi_vals, v_vals
 
 
 # ── Plots ──────────────────────────────────────────────────────────────────────
@@ -117,17 +121,26 @@ def plot_learning_curves(runs_dir: str, out_dir: str):
     curves = collect_curves(runs_dir, "train/ep_reward")
     fig, ax = plt.subplots(figsize=(9, 5))
 
+    # Compute a shared normalisation scale from all conditions so the
+    # y-axis is readable regardless of the Lyapunov function's magnitude.
+    aligned = {c: align_curves(curves[c]) for c in ["A", "B"]}
+    all_means = [m for _, m, _ in aligned.values() if m is not None]
+    scale = max(np.abs(m).max() for m in all_means) if all_means else 1.0
+    if scale == 0:
+        scale = 1.0
+
     any_plotted = False
     for cond in ["A", "B"]:
-        grid, mean, std = align_curves(curves[cond])
+        grid, mean, std = aligned[cond]
         if grid is None:
             continue
-        ax.plot(grid, mean, color=COLORS[cond], label=LABELS[cond], linewidth=2)
-        ax.fill_between(grid, mean - std, mean + std, alpha=0.15, color=COLORS[cond])
+        ax.plot(grid, mean / scale, color=COLORS[cond], label=LABELS[cond], linewidth=2)
+        ax.fill_between(grid, (mean - std) / scale, (mean + std) / scale,
+                        alpha=0.15, color=COLORS[cond])
         any_plotted = True
 
     ax.set_xlabel("Environment steps", labelpad=8)
-    ax.set_ylabel("Episode reward (Lyapunov)", labelpad=8)
+    ax.set_ylabel("Episode reward (normalised)", labelpad=8)
     ax.set_title("Learning Curves — mean ± std over 5 seeds", pad=12)
     ax.xaxis.set_major_formatter(mticker.FuncFormatter(lambda x, _: f"{x/1e3:.0f}k"))
     ax.grid(True, which="major", linestyle="--", linewidth=0.6, alpha=0.5)
@@ -147,18 +160,26 @@ def plot_value_loss(runs_dir: str, out_dir: str):
     curves = collect_curves(runs_dir, "loss/value")
     fig, ax = plt.subplots(figsize=(9, 5))
 
+    aligned = {c: align_curves(curves[c]) for c in ["A", "B"]}
+    all_means = [m for _, m, _ in aligned.values() if m is not None]
+    scale = max(m.max() for m in all_means) if all_means else 1.0
+    if scale == 0:
+        scale = 1.0
+
     any_plotted = False
     for cond in ["A", "B"]:
-        grid, mean, std = align_curves(curves[cond])
+        grid, mean, std = aligned[cond]
         if grid is None:
             continue
-        ax.plot(grid, mean, color=COLORS[cond], label=LABELS[cond], linewidth=2)
-        ax.fill_between(grid, mean - std, mean + std, alpha=0.15, color=COLORS[cond])
+        ax.plot(grid, mean / scale, color=COLORS[cond], label=LABELS[cond], linewidth=2)
+        ax.fill_between(grid, (mean - std) / scale, (mean + std) / scale,
+                        alpha=0.15, color=COLORS[cond])
         any_plotted = True
 
     ax.set_xlabel("Environment steps", labelpad=8)
-    ax.set_ylabel("Value loss  MSE(V(s), GAE returns)", labelpad=8)
+    ax.set_ylabel("Value loss (normalised)", labelpad=8)
     ax.set_title("Critic MSE over Training — mean ± std over 5 seeds", pad=12)
+    ax.set_yscale("log")
     ax.xaxis.set_major_formatter(mticker.FuncFormatter(lambda x, _: f"{x/1e3:.0f}k"))
     ax.grid(True, which="major", linestyle="--", linewidth=0.6, alpha=0.5)
     ax.grid(True, which="minor", linestyle=":", linewidth=0.4, alpha=0.3)
@@ -172,29 +193,37 @@ def plot_value_loss(runs_dir: str, out_dir: str):
     print("Saved value_loss.png")
 
 
+AXIS_LABELS = {
+    "Pendulum-v1": ("θ (rad)", "θ̇ (rad/s)"),
+    "MountainCarContinuous-v0": ("x (position)", "v (velocity)"),
+}
+
 def plot_value_heatmaps(run_name_A: str, run_name_B: str, runs_dir: str,
-                        out_dir: str, env_class: type[LyapunovWrapper], device="cuda"):
+                        out_dir: str, env_class: type[LyapunovWrapper],
+                        env_id: str, device="cuda"):
+    obs_dim = env_class.obs_dim
+    xlabel, ylabel = AXIS_LABELS.get(env_id, ("dim 0", "dim 1"))
     fig, axes = plt.subplots(1, 3, figsize=(15, 4))
     for ax_idx, (condition, run_name, title) in enumerate([
         ("A", run_name_A, "Condition A: V(s)"),
         ("B", run_name_B, "Condition B: V(s) = Φ + f"),
     ]):
-        critic = make_critic(condition, obs_dim=3, hidden_dim=64,
+        critic = make_critic(condition, obs_dim=obs_dim, hidden_dim=64,
                              phi_fn=env_class.phi_torch).to(device)
         ckpt_path = os.path.join(runs_dir, run_name, "critic.pt")
         if os.path.exists(ckpt_path):
             critic.load_state_dict(torch.load(ckpt_path, map_location=device))
-        TH, TD, phi_vals, v_vals = value_grid(critic, env_class, device)
-        im = axes[ax_idx].pcolormesh(TH, TD, v_vals, cmap="viridis")
+        ax1, ax2, phi_vals, v_vals = value_grid(critic, env_class, device)
+        im = axes[ax_idx].pcolormesh(ax1, ax2, v_vals, cmap="viridis")
         axes[ax_idx].set_title(title)
-        axes[ax_idx].set_xlabel("θ (rad)")
-        axes[ax_idx].set_ylabel("θ̇ (rad/s)")
+        axes[ax_idx].set_xlabel(xlabel)
+        axes[ax_idx].set_ylabel(ylabel)
         fig.colorbar(im, ax=axes[ax_idx])
 
-    im = axes[2].pcolormesh(TH, TD, phi_vals, cmap="viridis")
+    im = axes[2].pcolormesh(ax1, ax2, phi_vals, cmap="viridis")
     axes[2].set_title("Analytical Φ(s)")
-    axes[2].set_xlabel("θ (rad)")
-    axes[2].set_ylabel("θ̇ (rad/s)")
+    axes[2].set_xlabel(xlabel)
+    axes[2].set_ylabel(ylabel)
     fig.colorbar(im, ax=axes[2])
 
     fig.tight_layout()
@@ -225,7 +254,7 @@ def main():
     run_B = "condition_B_seed_0"
     if os.path.exists(os.path.join(env_runs_dir, run_A, "critic.pt")) and \
        os.path.exists(os.path.join(env_runs_dir, run_B, "critic.pt")):
-        plot_value_heatmaps(run_A, run_B, env_runs_dir, out_dir, env_class, args.device)
+        plot_value_heatmaps(run_A, run_B, env_runs_dir, out_dir, env_class, args.env_id, args.device)
     else:
         print("Skipping value heatmaps (no checkpoints found — train first).")
 

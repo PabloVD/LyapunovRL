@@ -10,9 +10,13 @@ class LyapunovWrapper(gym.Wrapper, ABC):
     Base wrapper that replaces the native environment reward with:
         R_t = Φ(s_t) - Φ(s_{t+1})
 
-    Subclasses must implement phi (numpy, used for reward) and
-    phi_torch (torch, used by CriticB).
+    Subclasses must implement phi, phi_torch, and state_grid.
+    They should also set obs_dim, act_dim, and action_clip as class attributes.
     """
+
+    obs_dim: int
+    act_dim: int
+    action_clip: tuple[float, float]  # (low, high) for action clipping
 
     def __init__(self, env: gym.Env):
         super().__init__(env)
@@ -27,9 +31,17 @@ class LyapunovWrapper(gym.Wrapper, ABC):
     @staticmethod
     @abstractmethod
     def phi_torch(obs: torch.Tensor) -> torch.Tensor:
-        """Lyapunov function value for a batch of observations (torch).
-        Args:  obs (..., obs_dim)
+        """Lyapunov function for a batch of observations (torch).
+        Args:    obs (..., obs_dim)
         Returns: (..., 1)
+        """
+        ...
+
+    @staticmethod
+    @abstractmethod
+    def state_grid(n: int = 50) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Return (axis1_grid, axis2_grid, states) for value visualisation.
+        states has shape (n*n, obs_dim).
         """
         ...
 

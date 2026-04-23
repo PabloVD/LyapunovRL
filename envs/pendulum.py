@@ -11,7 +11,12 @@ class LyapunovPendulum(LyapunovWrapper):
 
     Lyapunov function: mechanical energy relative to the upright equilibrium.
         Φ(s) = (1 - cos θ) + 0.5 θ̇²
+    Zero at the upright equilibrium (θ=0, θ̇=0), positive everywhere else.
     """
+
+    obs_dim = 3
+    act_dim = 1
+    action_clip = (-2.0, 2.0)
 
     def __init__(self, render_mode=None):
         super().__init__(gym.make("Pendulum-v1", render_mode=render_mode))
@@ -26,3 +31,11 @@ class LyapunovPendulum(LyapunovWrapper):
         cos_th = obs[..., 0:1]
         theta_dot = obs[..., 2:3]
         return (1.0 - cos_th) + 0.5 * theta_dot ** 2
+
+    @staticmethod
+    def state_grid(n: int = 50):
+        theta = np.linspace(-np.pi, np.pi, n)
+        theta_dot = np.linspace(-8.0, 8.0, n)
+        TH, TD = np.meshgrid(theta, theta_dot)
+        states = np.stack([np.cos(TH), np.sin(TH), TD], axis=-1).reshape(-1, 3).astype(np.float32)
+        return TH, TD, states

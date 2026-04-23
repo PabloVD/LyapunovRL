@@ -5,6 +5,11 @@ import torch
 class RolloutBuffer:
     """
     Stores one rollout of T steps and computes GAE advantages + discounted returns.
+
+    Correctly handles the terminated vs truncated distinction:
+      - terminated: true episode end (absorbing state) — next value is 0.
+      - truncated:  timeout — episode is cut off but the state still has value.
+        The caller must supply V(final_obs) as next_value before resetting the env.
     """
 
     def __init__(self, T: int, obs_dim: int, act_dim: int, device: torch.device):
@@ -14,7 +19,8 @@ class RolloutBuffer:
         self.obs = np.zeros((T, obs_dim), dtype=np.float32)
         self.actions = np.zeros((T, act_dim), dtype=np.float32)
         self.rewards = np.zeros(T, dtype=np.float32)
-        self.dones = np.zeros(T, dtype=np.float32)
+        self.episode_ends = np.zeros(T, dtype=np.float32)   # 1 at any episode boundary
+        self.next_values = np.zeros(T, dtype=np.float32)    # correct V(s_{t+1}) per step
         self.log_probs = np.zeros(T, dtype=np.float32)
         self.values = np.zeros(T, dtype=np.float32)
 
@@ -23,23 +29,38 @@ class RolloutBuffer:
 
         self.ptr = 0
 
-    def add(self, obs, action, reward, done, log_prob, value):
+    def add(self, obs, action, reward, terminated: bool, truncated: bool,
+            log_prob: float, value: float, next_value: float):
+        """
+        next_value: V(s_{t+1}) pre-computed by the caller.
+          - non-done step:   value of the next obs in the rollout (values[ptr+1])
+            → pass 0 here; compute_gae will fill it from self.values[t+1].
+          - truncated step:  V(final_obs) computed before env.reset().
+          - terminated step: 0 (absorbing state, no future reward).
+        """
         self.obs[self.ptr] = obs
         self.actions[self.ptr] = action
         self.rewards[self.ptr] = reward
-        self.dones[self.ptr] = done
+        self.episode_ends[self.ptr] = float(terminated or truncated)
+        self.next_values[self.ptr] = next_value
         self.log_probs[self.ptr] = log_prob
         self.values[self.ptr] = value
         self.ptr += 1
 
     def compute_gae(self, last_value: float, gamma: float, lam: float):
+        # Fill next_values for non-episode-end steps from the buffer itself.
+        for t in range(self.T - 1):
+            if not self.episode_ends[t]:
+                self.next_values[t] = self.values[t + 1]
+        self.next_values[self.T - 1] = last_value  # end of rollout, not episode
+
         gae = 0.0
         for t in reversed(range(self.T)):
-            next_val = last_value if t == self.T - 1 else self.values[t + 1]
-            next_non_term = 1.0 - (self.dones[t] if t < self.T - 1 else 0.0)
-            delta = self.rewards[t] + gamma * next_val * next_non_term - self.values[t]
-            gae = delta + gamma * lam * next_non_term * gae
+            delta = self.rewards[t] + gamma * self.next_values[t] - self.values[t]
+            # Reset GAE accumulation at any episode boundary.
+            gae = delta + gamma * lam * (1.0 - self.episode_ends[t]) * gae
             self.advantages[t] = gae
+
         self.returns = self.advantages + self.values
         self.ptr = 0
 

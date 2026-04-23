@@ -15,8 +15,15 @@ from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 
 from config import Config
+from envs.base import LyapunovWrapper
 from envs.pendulum import LyapunovPendulum
+from envs.mountain_car import LyapunovMountainCar
 from ppo.trainer import PPOTrainer
+
+ENV_REGISTRY: dict[str, type[LyapunovWrapper]] = {
+    "Pendulum-v1": LyapunovPendulum,
+    "MountainCarContinuous-v0": LyapunovMountainCar,
+}
 
 
 def set_seed(seed: int):
@@ -35,8 +42,11 @@ def train(cfg: Config):
 
     run_dir = f"runs/{cfg.env_id}/{cfg.run_name}"
     writer = SummaryWriter(log_dir=run_dir)
-    env = LyapunovPendulum()
-    trainer = PPOTrainer(cfg, device, writer, phi_fn=type(env).phi_torch)
+    env_class = ENV_REGISTRY[cfg.env_id]
+    env = env_class()
+    trainer = PPOTrainer(cfg, device, writer,
+                         obs_dim=env_class.obs_dim, act_dim=env_class.act_dim,
+                         phi_fn=env_class.phi_torch)
 
     obs, _ = env.reset(seed=cfg.seed)
     n_updates = cfg.total_steps // cfg.T
@@ -49,20 +59,33 @@ def train(cfg: Config):
     for update in pbar:
         trainer.global_step = (update - 1) * cfg.T
 
+        act_lo, act_hi = env_class.action_clip
         for _ in range(cfg.T):
             action, log_prob, value = trainer.get_action_and_value(obs)
-            clipped_action = np.clip(action, -2.0, 2.0)
+            clipped_action = np.clip(action, act_lo, act_hi)
 
             next_obs, reward, terminated, truncated, _ = env.step(clipped_action)
-            done = terminated or truncated
 
-            trainer.buffer.add(obs, action, reward, float(done), log_prob, value)
+            # Compute the correct next-state value before potentially resetting.
+            # - terminated: absorbing state, V(next) = 0.
+            # - truncated:  timeout, episode continues hypothetically — use V(next_obs).
+            # - otherwise:  filled from the buffer in compute_gae.
+            if terminated:
+                next_value = 0.0
+            elif truncated:
+                with torch.no_grad():
+                    nobs_t = torch.tensor(next_obs, dtype=torch.float32, device=device).unsqueeze(0)
+                    next_value = trainer.critic(nobs_t).squeeze().item()
+            else:
+                next_value = 0.0  # placeholder; overwritten by compute_gae
+
+            trainer.buffer.add(obs, action, reward, terminated, truncated, log_prob, value, next_value)
 
             ep_reward += reward
             ep_len += 1
             obs = next_obs
 
-            if done:
+            if terminated or truncated:
                 ep_rewards.append(ep_reward)
                 writer.add_scalar("train/ep_reward", ep_reward, trainer.global_step)
                 writer.add_scalar("train/ep_len", ep_len, trainer.global_step)

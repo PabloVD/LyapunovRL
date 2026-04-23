@@ -11,13 +11,11 @@ from ppo.buffer import RolloutBuffer
 
 class PPOTrainer:
     def __init__(self, cfg, device: torch.device, writer: SummaryWriter,
+                 obs_dim: int, act_dim: int,
                  phi_fn: Callable[[torch.Tensor], torch.Tensor] | None = None):
         self.cfg = cfg
         self.device = device
         self.writer = writer
-
-        obs_dim = 3
-        act_dim = 1
 
         self.actor = Actor(obs_dim, act_dim, cfg.hidden_dim).to(device)
         self.critic = make_critic(cfg.condition, obs_dim, cfg.hidden_dim, phi_fn=phi_fn).to(device)

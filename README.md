@@ -84,6 +84,18 @@ uv run python train.py --condition A --seed 0
 uv run python train.py --condition B --seed 0
 ```
 
+To visualize a trained policy in a GUI:
+
+```bash
+uv run python visualize.py --condition A --seed 0
+```
+
+Or save as GIF (no display needed, e.g. on a server):
+
+```bash
+uv run python visualize.py --condition B --seed 0 --save
+```
+
 ## Implementation Notes
 
 - Custom PyTorch PPO with configurable critic (no stable-baselines3)

@@ -18,11 +18,13 @@ import torch
 from PIL import Image
 
 from envs.base import LyapunovWrapper
+from envs.mountain_car import LyapunovMountainCar
 from envs.pendulum import LyapunovPendulum
 from models.actor import Actor
 
 ENV_REGISTRY: dict[str, type[LyapunovWrapper]] = {
     "Pendulum-v1": LyapunovPendulum,
+    "MountainCarContinuous-v0": LyapunovMountainCar,
 }
 
 
@@ -52,7 +54,8 @@ def run_episode(actor: Actor, env: LyapunovWrapper,
         with torch.no_grad():
             action = actor(obs_t).mean.squeeze(0).cpu().numpy()
 
-        obs, r, terminated, truncated, _ = env.step(np.clip(action, -2.0, 2.0))
+        act_lo, act_hi = type(env).action_clip
+        obs, r, terminated, truncated, _ = env.step(np.clip(action, act_lo, act_hi))
         total_reward += r
         done = terminated or truncated
 
@@ -91,7 +94,7 @@ def main():
                            f"condition_{args.condition}_seed_{args.seed}")
     device = args.device if torch.cuda.is_available() else "cpu"
 
-    actor = load_actor(run_dir, obs_dim=3, act_dim=1,
+    actor = load_actor(run_dir, obs_dim=env_class.obs_dim, act_dim=env_class.act_dim,
                        hidden_dim=args.hidden_dim, device=device)
 
     render_mode = "rgb_array" if args.save else "human"
