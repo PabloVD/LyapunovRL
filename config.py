@@ -18,5 +18,6 @@ class Config:
     max_grad_norm: float = 0.5
     hidden_dim: int = 64
     device: str = "cuda"
+    env_id: str = "Pendulum-v1"
     log_interval: int = 1       # log every N updates
     run_name: str = ""          # auto-set in train.py if empty

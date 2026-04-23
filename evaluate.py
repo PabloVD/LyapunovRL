@@ -186,19 +186,23 @@ def plot_value_heatmaps(run_name_A: str, run_name_B: str, runs_dir: str, out_dir
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--runs_dir", type=str, default="runs")
+    parser.add_argument("--env_id", type=str, default="Pendulum-v1")
     parser.add_argument("--out_dir", type=str, default="plots")
     parser.add_argument("--device", type=str, default="cuda")
     args = parser.parse_args()
 
-    os.makedirs(args.out_dir, exist_ok=True)
-    plot_learning_curves(args.runs_dir, args.out_dir)
+    env_runs_dir = os.path.join(args.runs_dir, args.env_id)
+    out_dir = os.path.join(args.out_dir, args.env_id)
+    os.makedirs(out_dir, exist_ok=True)
+
+    plot_learning_curves(env_runs_dir, out_dir)
 
     run_A = "condition_A_seed_0"
     run_B = "condition_B_seed_0"
-    ckpt_A = os.path.join(args.runs_dir, run_A, "critic.pt")
-    ckpt_B = os.path.join(args.runs_dir, run_B, "critic.pt")
+    ckpt_A = os.path.join(env_runs_dir, run_A, "critic.pt")
+    ckpt_B = os.path.join(env_runs_dir, run_B, "critic.pt")
     if os.path.exists(ckpt_A) and os.path.exists(ckpt_B):
-        plot_value_heatmaps(run_A, run_B, args.runs_dir, args.out_dir, args.device)
+        plot_value_heatmaps(run_A, run_B, env_runs_dir, out_dir, args.device)
     else:
         print("Skipping value heatmaps (no checkpoints found — train first).")
 

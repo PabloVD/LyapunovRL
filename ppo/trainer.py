@@ -1,3 +1,5 @@
+from typing import Callable
+
 import torch
 import torch.nn as nn
 from torch.utils.tensorboard import SummaryWriter
@@ -8,7 +10,8 @@ from ppo.buffer import RolloutBuffer
 
 
 class PPOTrainer:
-    def __init__(self, cfg, device: torch.device, writer: SummaryWriter):
+    def __init__(self, cfg, device: torch.device, writer: SummaryWriter,
+                 phi_fn: Callable[[torch.Tensor], torch.Tensor] | None = None):
         self.cfg = cfg
         self.device = device
         self.writer = writer
@@ -17,7 +20,7 @@ class PPOTrainer:
         act_dim = 1
 
         self.actor = Actor(obs_dim, act_dim, cfg.hidden_dim).to(device)
-        self.critic = make_critic(cfg.condition, obs_dim, cfg.hidden_dim).to(device)
+        self.critic = make_critic(cfg.condition, obs_dim, cfg.hidden_dim, phi_fn=phi_fn).to(device)
 
         self.actor_opt = torch.optim.Adam(self.actor.parameters(), lr=cfg.lr)
         self.critic_opt = torch.optim.Adam(self.critic.parameters(), lr=cfg.lr)

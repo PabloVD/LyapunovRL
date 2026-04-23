@@ -1,12 +1,11 @@
+from typing import Callable
+
 import torch
 import torch.nn as nn
-from lyapunov.functions import phi_torch
 
 
 class CriticA(nn.Module):
-    """
-    Condition A: standard value network. Learns V(s) entirely from data.
-    """
+    """Condition A: standard value network. Learns V(s) entirely from data."""
 
     def __init__(self, obs_dim: int, hidden_dim: int = 64):
         super().__init__()
@@ -25,12 +24,14 @@ class CriticB(nn.Module):
     Condition B: structured value network.
     V(s) = Φ(s) + f_θ(s), where only f_θ is learned.
 
-    The last layer is zero-initialized so that V ≈ Φ at the start of training,
-    giving the network a physically meaningful starting point.
+    phi_fn is supplied by the environment class so this critic is not
+    coupled to any specific Lyapunov function.
+    The last layer is zero-initialized so V ≈ Φ at training start.
     """
 
-    def __init__(self, obs_dim: int, hidden_dim: int = 64):
+    def __init__(self, obs_dim: int, phi_fn: Callable[[torch.Tensor], torch.Tensor], hidden_dim: int = 64):
         super().__init__()
+        self.phi_fn = phi_fn
         self.net = nn.Sequential(
             nn.Linear(obs_dim, hidden_dim), nn.Tanh(),
             nn.Linear(hidden_dim, hidden_dim), nn.Tanh(),
@@ -40,18 +41,23 @@ class CriticB(nn.Module):
         nn.init.zeros_(self.residual_head.bias)
 
     def forward(self, obs: torch.Tensor) -> torch.Tensor:
-        features = self.net(obs)
-        f_theta = self.residual_head(features)
-        phi = phi_torch(obs)
-        return phi + f_theta
+        f_theta = self.residual_head(self.net(obs))
+        return self.phi_fn(obs) + f_theta
 
     def residual_norm(self) -> float:
         return self.residual_head.weight.data.norm().item()
 
 
-def make_critic(condition: str, obs_dim: int, hidden_dim: int = 64) -> nn.Module:
+def make_critic(
+    condition: str,
+    obs_dim: int,
+    hidden_dim: int = 64,
+    phi_fn: Callable[[torch.Tensor], torch.Tensor] | None = None,
+) -> nn.Module:
     if condition == "A":
         return CriticA(obs_dim, hidden_dim)
     elif condition == "B":
-        return CriticB(obs_dim, hidden_dim)
+        if phi_fn is None:
+            raise ValueError("Condition B requires phi_fn — pass env_class.phi_torch.")
+        return CriticB(obs_dim, phi_fn, hidden_dim)
     raise ValueError(f"Unknown condition: {condition!r}. Use 'A' or 'B'.")

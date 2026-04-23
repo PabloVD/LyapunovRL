@@ -8,14 +8,14 @@ Usage:
 
 import argparse
 import random
-import time
 
 import numpy as np
 import torch
 from torch.utils.tensorboard import SummaryWriter
+from tqdm import tqdm
 
 from config import Config
-from envs.lyapunov_pendulum import LyapunovPendulum
+from envs.pendulum import LyapunovPendulum
 from ppo.trainer import PPOTrainer
 
 
@@ -33,9 +33,10 @@ def train(cfg: Config):
     set_seed(cfg.seed)
     device = torch.device(cfg.device if torch.cuda.is_available() else "cpu")
 
-    writer = SummaryWriter(log_dir=f"runs/{cfg.run_name}")
+    run_dir = f"runs/{cfg.env_id}/{cfg.run_name}"
+    writer = SummaryWriter(log_dir=run_dir)
     env = LyapunovPendulum()
-    trainer = PPOTrainer(cfg, device, writer)
+    trainer = PPOTrainer(cfg, device, writer, phi_fn=type(env).phi_torch)
 
     obs, _ = env.reset(seed=cfg.seed)
     n_updates = cfg.total_steps // cfg.T
@@ -43,12 +44,9 @@ def train(cfg: Config):
     ep_reward = 0.0
     ep_len = 0
 
-    print(f"Training condition={cfg.condition} seed={cfg.seed} device={device} "
-          f"total_steps={cfg.total_steps}")
+    pbar = tqdm(range(1, n_updates + 1), desc=f"[{cfg.condition}|seed{cfg.seed}]", unit="update")
 
-    start = time.time()
-
-    for update in range(1, n_updates + 1):
+    for update in pbar:
         trainer.global_step = (update - 1) * cfg.T
 
         for _ in range(cfg.T):
@@ -78,22 +76,15 @@ def train(cfg: Config):
 
         trainer.update(last_value)
 
-        if update % 10 == 0:
-            mean_r = np.mean(ep_rewards[-10:]) if ep_rewards else float("nan")
-            elapsed = time.time() - start
-            print(f"  update {update:4d}/{n_updates} | "
-                  f"steps {trainer.global_step:7d} | "
-                  f"mean_ep_reward {mean_r:7.3f} | "
-                  f"elapsed {elapsed:.1f}s")
+        mean_r = np.mean(ep_rewards[-10:]) if ep_rewards else float("nan")
+        pbar.set_postfix(steps=trainer.global_step, mean_r=f"{mean_r:.3f}")
 
-    # Save checkpoints for evaluation
-    ckpt_dir = f"runs/{cfg.run_name}"
-    torch.save(trainer.actor.state_dict(), f"{ckpt_dir}/actor.pt")
-    torch.save(trainer.critic.state_dict(), f"{ckpt_dir}/critic.pt")
+    torch.save(trainer.actor.state_dict(), f"{run_dir}/actor.pt")
+    torch.save(trainer.critic.state_dict(), f"{run_dir}/critic.pt")
 
     writer.close()
     env.close()
-    print(f"Done. Checkpoints saved to {ckpt_dir}/")
+    print(f"Done. Checkpoints saved to {run_dir}/")
     return trainer
 
 
@@ -104,6 +95,7 @@ def parse_args() -> Config:
     parser.add_argument("--total_steps", type=int, default=300_000)
     parser.add_argument("--gamma", type=float, default=0.99)
     parser.add_argument("--device", type=str, default="cuda")
+    parser.add_argument("--env_id", type=str, default="Pendulum-v1")
     parser.add_argument("--run_name", type=str, default="")
     args = parser.parse_args()
     cfg = Config(
@@ -112,6 +104,7 @@ def parse_args() -> Config:
         total_steps=args.total_steps,
         gamma=args.gamma,
         device=args.device,
+        env_id=args.env_id,
         run_name=args.run_name,
     )
     return cfg
