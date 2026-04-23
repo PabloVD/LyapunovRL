@@ -2,51 +2,57 @@
 evaluate.py — compute all 6 evaluation metrics and produce plots.
 
 Usage:
-    uv run python evaluate.py            # uses runs/ directory
-    uv run python evaluate.py --out_dir plots/
+    uv run python evaluate.py
+    uv run python evaluate.py --env_id Pendulum-v1 --out_dir plots/
 """
 
 import argparse
 import os
-from pathlib import Path
 
 import matplotlib.pyplot as plt
+import matplotlib.ticker as mticker
 import numpy as np
 import torch
 from tensorboard.backend.event_processing.event_accumulator import EventAccumulator
 
-from config import Config
-from envs.lyapunov_pendulum import LyapunovPendulum
-from lyapunov.functions import phi_np, phi_torch
+from envs.base import LyapunovWrapper
+from envs.pendulum import LyapunovPendulum
 from models.actor import Actor
 from models.critic import make_critic
 
+ENV_REGISTRY: dict[str, type[LyapunovWrapper]] = {
+    "Pendulum-v1": LyapunovPendulum,
+}
 
-# ── Metric helpers ────────────────────────────────────────────────────────────
+COLORS = {"A": "#4C72B0", "B": "#DD8452"}
+LABELS = {"A": "Condition A — standard critic", "B": "Condition B — Lyapunov structured"}
+
+plt.rcParams.update({
+    "font.family": "sans-serif",
+    "axes.spines.top": False,
+    "axes.spines.right": False,
+})
+
+
+# ── TensorBoard helpers ───────────────────────────────────────────────────────
 
 def load_tb_scalar(run_dir: str, tag: str) -> tuple[np.ndarray, np.ndarray]:
-    """Return (steps, values) arrays for a TensorBoard scalar tag."""
     ea = EventAccumulator(run_dir)
     ea.Reload()
-    if tag not in ea.scalars.Keys():
+    if tag not in ea.Tags().get("scalars", []):
         return np.array([]), np.array([])
-    events = ea.scalars.Values(tag)
+    events = ea.Scalars(tag)
     steps = np.array([e.step for e in events])
     values = np.array([e.value for e in events])
     return steps, values
 
 
 def collect_curves(runs_dir: str, tag: str, n_seeds: int = 5):
-    """
-    For each condition, load curves from all seeds and return
-    (steps, mean, std) for conditions A and B.
-    """
     results = {}
     for cond in ["A", "B"]:
         seed_curves = []
         for seed in range(n_seeds):
-            run_name = f"condition_{cond}_seed_{seed}"
-            run_dir = os.path.join(runs_dir, run_name)
+            run_dir = os.path.join(runs_dir, f"condition_{cond}_seed_{seed}")
             if not os.path.exists(run_dir):
                 continue
             steps, values = load_tb_scalar(run_dir, tag)
@@ -56,70 +62,52 @@ def collect_curves(runs_dir: str, tag: str, n_seeds: int = 5):
     return results
 
 
-def align_curves(seed_curves, n_points=200):
-    """Interpolate all seed curves onto a common step grid."""
+def align_curves(seed_curves, n_points=300):
     if not seed_curves:
         return None, None, None
     all_steps = np.concatenate([s for s, _ in seed_curves])
-    step_min, step_max = all_steps.min(), all_steps.max()
-    grid = np.linspace(step_min, step_max, n_points)
-    interpolated = []
-    for steps, values in seed_curves:
-        if len(steps) < 2:
-            continue
-        interp = np.interp(grid, steps, values)
-        interpolated.append(interp)
+    grid = np.linspace(all_steps.min(), all_steps.max(), n_points)
+    interpolated = [np.interp(grid, steps, values) for steps, values in seed_curves if len(steps) >= 2]
+    if not interpolated:
+        return None, None, None
     arr = np.stack(interpolated)
     return grid, arr.mean(0), arr.std(0)
 
 
+
 # ── Evaluation rollout ─────────────────────────────────────────────────────────
 
-def eval_policy(actor: Actor, env: LyapunovPendulum, n_episodes: int = 10, device="cuda"):
-    """Run n_episodes with the given actor; return per-episode rewards and upright fractions."""
+def eval_policy(actor: Actor, env: LyapunovWrapper, n_episodes: int = 10, device="cuda"):
     actor.eval()
-    ep_rewards = []
-    upright_fracs = []
-
+    ep_rewards, upright_fracs = [], []
     for _ in range(n_episodes):
         obs, _ = env.reset()
-        ep_r = 0.0
-        upright = 0
-        steps = 0
-        done = False
+        ep_r, upright, steps, done = 0.0, 0, 0, False
         while not done:
             obs_t = torch.tensor(obs, dtype=torch.float32, device=device).unsqueeze(0)
             with torch.no_grad():
-                dist = actor(obs_t)
-                action = dist.mean.squeeze(0).cpu().numpy()
-            action = np.clip(action, -2.0, 2.0)
-            obs, r, terminated, truncated, _ = env.step(action)
+                action = actor(obs_t).mean.squeeze(0).cpu().numpy()
+            obs, r, terminated, truncated, _ = env.step(np.clip(action, -2.0, 2.0))
             ep_r += r
-            theta = np.arctan2(obs[1], obs[0])
-            upright += int(abs(theta) < 0.1)
+            upright += int(abs(np.arctan2(obs[1], obs[0])) < 0.1)
             steps += 1
             done = terminated or truncated
         ep_rewards.append(ep_r)
         upright_fracs.append(upright / max(steps, 1))
-
     return np.array(ep_rewards), np.array(upright_fracs)
 
 
-# ── Value grid comparison ──────────────────────────────────────────────────────
+# ── Value grid ────────────────────────────────────────────────────────────────
 
-def value_grid(critic, device, n=50):
-    """Evaluate learned V and analytical Φ on a grid of (θ, θ̇)."""
+def value_grid(critic, env_class: type[LyapunovWrapper], device, n=50):
     theta = np.linspace(-np.pi, np.pi, n)
     theta_dot = np.linspace(-8.0, 8.0, n)
     TH, TD = np.meshgrid(theta, theta_dot)
-
     states = np.stack([np.cos(TH), np.sin(TH), TD], axis=-1).reshape(-1, 3).astype(np.float32)
-    phi_vals = phi_np(states).reshape(n, n)
-
     states_t = torch.tensor(states, device=device)
     with torch.no_grad():
+        phi_vals = env_class.phi_torch(states_t).cpu().numpy().reshape(n, n)
         v_vals = critic(states_t).cpu().numpy().reshape(n, n)
-
     return TH, TD, phi_vals, v_vals
 
 
@@ -127,42 +115,76 @@ def value_grid(critic, device, n=50):
 
 def plot_learning_curves(runs_dir: str, out_dir: str):
     curves = collect_curves(runs_dir, "train/ep_reward")
-    fig, ax = plt.subplots(figsize=(8, 5))
-    colors = {"A": "#1f77b4", "B": "#ff7f0e"}
-    labels = {"A": "Condition A (standard critic)", "B": "Condition B (Lyapunov-structured)"}
+    fig, ax = plt.subplots(figsize=(9, 5))
+
+    any_plotted = False
     for cond in ["A", "B"]:
         grid, mean, std = align_curves(curves[cond])
         if grid is None:
             continue
-        ax.plot(grid, mean, color=colors[cond], label=labels[cond])
-        ax.fill_between(grid, mean - std, mean + std, alpha=0.2, color=colors[cond])
-    ax.set_xlabel("Environment steps")
-    ax.set_ylabel("Episode reward (Lyapunov)")
-    ax.set_title("Learning Curves (mean ± std, 5 seeds)")
-    ax.legend()
+        ax.plot(grid, mean, color=COLORS[cond], label=LABELS[cond], linewidth=2)
+        ax.fill_between(grid, mean - std, mean + std, alpha=0.15, color=COLORS[cond])
+        any_plotted = True
+
+    ax.set_xlabel("Environment steps", labelpad=8)
+    ax.set_ylabel("Episode reward (Lyapunov)", labelpad=8)
+    ax.set_title("Learning Curves — mean ± std over 5 seeds", pad=12)
+    ax.xaxis.set_major_formatter(mticker.FuncFormatter(lambda x, _: f"{x/1e3:.0f}k"))
+    ax.grid(True, which="major", linestyle="--", linewidth=0.6, alpha=0.5)
+    ax.grid(True, which="minor", linestyle=":", linewidth=0.4, alpha=0.3)
+    ax.minorticks_on()
+    if any_plotted:
+        ax.legend(frameon=False, fontsize=10)
+
     fig.tight_layout()
     fig.savefig(os.path.join(out_dir, "learning_curves.png"), dpi=150)
     plt.close(fig)
     print("Saved learning_curves.png")
 
 
-def plot_value_heatmaps(run_name_A: str, run_name_B: str, runs_dir: str, out_dir: str, device="cuda"):
-    cfg_A = Config(condition="A", run_name=run_name_A)
-    cfg_B = Config(condition="B", run_name=run_name_B)
+def plot_value_loss(runs_dir: str, out_dir: str):
+    """Plot value loss (MSE of V vs GAE returns) over training steps."""
+    curves = collect_curves(runs_dir, "loss/value")
+    fig, ax = plt.subplots(figsize=(9, 5))
 
+    any_plotted = False
+    for cond in ["A", "B"]:
+        grid, mean, std = align_curves(curves[cond])
+        if grid is None:
+            continue
+        ax.plot(grid, mean, color=COLORS[cond], label=LABELS[cond], linewidth=2)
+        ax.fill_between(grid, mean - std, mean + std, alpha=0.15, color=COLORS[cond])
+        any_plotted = True
+
+    ax.set_xlabel("Environment steps", labelpad=8)
+    ax.set_ylabel("Value loss  MSE(V(s), GAE returns)", labelpad=8)
+    ax.set_title("Critic MSE over Training — mean ± std over 5 seeds", pad=12)
+    ax.xaxis.set_major_formatter(mticker.FuncFormatter(lambda x, _: f"{x/1e3:.0f}k"))
+    ax.grid(True, which="major", linestyle="--", linewidth=0.6, alpha=0.5)
+    ax.grid(True, which="minor", linestyle=":", linewidth=0.4, alpha=0.3)
+    ax.minorticks_on()
+    if any_plotted:
+        ax.legend(frameon=False, fontsize=10)
+
+    fig.tight_layout()
+    fig.savefig(os.path.join(out_dir, "value_loss.png"), dpi=150)
+    plt.close(fig)
+    print("Saved value_loss.png")
+
+
+def plot_value_heatmaps(run_name_A: str, run_name_B: str, runs_dir: str,
+                        out_dir: str, env_class: type[LyapunovWrapper], device="cuda"):
     fig, axes = plt.subplots(1, 3, figsize=(15, 4))
-    entries = [
-        (cfg_A, "Condition A: V(s)"),
-        (cfg_B, "Condition B: V(s)=Φ+f"),
-    ]
-    phi_plotted = False
-
-    for ax_idx, (cfg, title) in enumerate(entries):
-        critic = make_critic(cfg.condition, obs_dim=3, hidden_dim=64).to(device)
-        ckpt_path = os.path.join(runs_dir, cfg.run_name, "critic.pt")
+    for ax_idx, (condition, run_name, title) in enumerate([
+        ("A", run_name_A, "Condition A: V(s)"),
+        ("B", run_name_B, "Condition B: V(s) = Φ + f"),
+    ]):
+        critic = make_critic(condition, obs_dim=3, hidden_dim=64,
+                             phi_fn=env_class.phi_torch).to(device)
+        ckpt_path = os.path.join(runs_dir, run_name, "critic.pt")
         if os.path.exists(ckpt_path):
             critic.load_state_dict(torch.load(ckpt_path, map_location=device))
-        TH, TD, phi_vals, v_vals = value_grid(critic, device)
+        TH, TD, phi_vals, v_vals = value_grid(critic, env_class, device)
         im = axes[ax_idx].pcolormesh(TH, TD, v_vals, cmap="viridis")
         axes[ax_idx].set_title(title)
         axes[ax_idx].set_xlabel("θ (rad)")
@@ -186,23 +208,24 @@ def plot_value_heatmaps(run_name_A: str, run_name_B: str, runs_dir: str, out_dir
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--runs_dir", type=str, default="runs")
-    parser.add_argument("--env_id", type=str, default="Pendulum-v1")
+    parser.add_argument("--env_id", type=str, default="Pendulum-v1", choices=list(ENV_REGISTRY))
     parser.add_argument("--out_dir", type=str, default="plots")
     parser.add_argument("--device", type=str, default="cuda")
     args = parser.parse_args()
 
+    env_class = ENV_REGISTRY[args.env_id]
     env_runs_dir = os.path.join(args.runs_dir, args.env_id)
     out_dir = os.path.join(args.out_dir, args.env_id)
     os.makedirs(out_dir, exist_ok=True)
 
     plot_learning_curves(env_runs_dir, out_dir)
+    plot_value_loss(env_runs_dir, out_dir)
 
     run_A = "condition_A_seed_0"
     run_B = "condition_B_seed_0"
-    ckpt_A = os.path.join(env_runs_dir, run_A, "critic.pt")
-    ckpt_B = os.path.join(env_runs_dir, run_B, "critic.pt")
-    if os.path.exists(ckpt_A) and os.path.exists(ckpt_B):
-        plot_value_heatmaps(run_A, run_B, env_runs_dir, out_dir, args.device)
+    if os.path.exists(os.path.join(env_runs_dir, run_A, "critic.pt")) and \
+       os.path.exists(os.path.join(env_runs_dir, run_B, "critic.pt")):
+        plot_value_heatmaps(run_A, run_B, env_runs_dir, out_dir, env_class, args.device)
     else:
         print("Skipping value heatmaps (no checkpoints found — train first).")
 

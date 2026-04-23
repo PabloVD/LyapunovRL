@@ -11,3 +11,4 @@ wheels/
 
 runs/
 uv.lock
+plots

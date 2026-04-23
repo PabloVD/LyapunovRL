@@ -20,7 +20,7 @@ def main():
     runs = [
         {"condition": cond, "seed": seed}
         for cond in ["A", "B"]
-        for seed in range(5)
+        for seed in range(1)
     ]
 
     print(f"Launching {len(runs)} runs ({args.total_steps} steps each)...")

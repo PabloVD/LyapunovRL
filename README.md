@@ -51,15 +51,46 @@ Two experimental conditions are compared using e.g. PPO:
 - Critic network outputs f_θ(s); total value = Φ(s) + f_θ(s)
 - Hypothesis: initializing V with the physically meaningful Φ should improve sample efficiency and stability
 
+## Usage
+
+Install dependencies (requires [uv](https://github.com/astral-sh/uv)):
+
+```bash
+uv sync
+```
+
+Run the full experiment (2 conditions × 5 seeds):
+
+```bash
+uv run python run_experiments.py
+```
+
+Evaluate results and generate plots:
+
+```bash
+uv run python evaluate.py
+```
+
+View training curves in TensorBoard:
+
+```bash
+uv run tensorboard --logdir runs/
+```
+
+To train a single run manually:
+
+```bash
+uv run python train.py --condition A --seed 0
+uv run python train.py --condition B --seed 0
+```
+
 ## Implementation Notes
 
-- Install gymnasium with: `pip install gymnasium[classic_control]`
-- PPO implementation: use stable-baselines3 or a custom PyTorch PPO
-- Custom reward wrapper: override the environment reward with R_t = Φ(s_t) - Φ(s_{t+1})
-- For Condition B, modify the critic network to output f_θ(s) and add Φ(s) analytically
-- Training: 100,000 environment steps per run, 5 random seeds each condition
-- Evaluation: average return (using Lyapunov reward), upright time, MSE between value and returns, and convergence speed
-- Hardware: GPU available (NVIDIA RTX PRO 6000, use device='cuda')
+- Custom PyTorch PPO with configurable critic (no stable-baselines3)
+- Reward wrapper overrides native Gymnasium reward with R_t = Φ(s_t) - Φ(s_{t+1})
+- For Condition B, only the residual f_θ(s) is learned; last layer zero-initialized so V ≈ Φ at training start
+- Training: 300,000 environment steps per run, 5 random seeds each condition
+- Hardware: GPU (NVIDIA RTX PRO 6000, `device='cuda'`)
 
 ## Evaluation Metrics
 
