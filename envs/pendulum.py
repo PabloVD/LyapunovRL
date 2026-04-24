@@ -40,6 +40,7 @@ class LyapunovPendulum(LyapunovWrapper):
         states = np.stack([np.cos(TH), np.sin(TH), TD], axis=-1).reshape(-1, 3).astype(np.float32)
         return TH, TD, states
     
-    def shaping_reward(self, obs, action, next_obs, terminated) -> float:
-        action_penalty = -0.001 * float(np.sum(action ** 2))
-        return action_penalty
+    def shaping_reward(self, obs, action, next_obs, terminated) -> dict[str, float]:
+        return {
+            "action_penalty": -0.001 * float(np.sum(action ** 2)),
+        }

@@ -53,6 +53,7 @@ def train(cfg: Config):
     ep_rewards = []
     ep_reward = 0.0
     ep_len = 0
+    ep_reward_terms: dict[str, float] = {}
 
     pbar = tqdm(range(1, n_updates + 1), desc=f"[{cfg.condition}|seed{cfg.seed}]", unit="update")
 
@@ -64,7 +65,7 @@ def train(cfg: Config):
             action, log_prob, value = trainer.get_action_and_value(obs)
             clipped_action = np.clip(action, act_lo, act_hi)
 
-            next_obs, reward, terminated, truncated, _ = env.step(clipped_action)
+            next_obs, reward, terminated, truncated, info = env.step(clipped_action)
 
             # Compute the correct next-state value before potentially resetting.
             # - terminated: absorbing state, V(next) = 0.
@@ -83,14 +84,19 @@ def train(cfg: Config):
 
             ep_reward += reward
             ep_len += 1
+            for k, v in info.get("reward_terms", {}).items():
+                ep_reward_terms[k] = ep_reward_terms.get(k, 0.0) + v
             obs = next_obs
 
             if terminated or truncated:
                 ep_rewards.append(ep_reward)
                 writer.add_scalar("train/ep_reward", ep_reward, trainer.global_step)
                 writer.add_scalar("train/ep_len", ep_len, trainer.global_step)
+                for k, v in ep_reward_terms.items():
+                    writer.add_scalar(f"train/ep_{k}", v, trainer.global_step)
                 ep_reward = 0.0
                 ep_len = 0
+                ep_reward_terms = {}
                 obs, _ = env.reset()
 
         with torch.no_grad():

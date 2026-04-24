@@ -51,20 +51,23 @@ class LyapunovWrapper(gym.Wrapper, ABC):
         return obs, info
 
     def shaping_reward(self, obs: np.ndarray, action: np.ndarray,
-                       next_obs: np.ndarray, terminated: bool) -> float:
-        """Extra reward added on top of the Lyapunov term.
+                       next_obs: np.ndarray, terminated: bool) -> dict[str, float]:
+        """Extra reward terms added on top of the Lyapunov term.
 
         Override in subclasses to add e.g. action penalties or success bonuses.
-        All four arguments are available so any combination is possible.
+        Return a dict of {name: value} so each term is logged separately.
         """
-        return 0.0
+        return {}
 
     def step(self, action):
         obs, _native_reward, terminated, truncated, info = self.env.step(action)
         phi_prev = self.__class__.phi(self._prev_obs)
         phi_next = self.__class__.phi(obs)
-        reward = float(phi_prev - phi_next) + self.shaping_reward(self._prev_obs, action, obs, terminated)
+        lyapunov = float(phi_prev - phi_next)
+        extra = self.shaping_reward(self._prev_obs, action, obs, terminated)
+        reward = lyapunov + sum(extra.values())
         info["phi_prev"] = phi_prev
         info["phi_next"] = phi_next
+        info["reward_terms"] = {"lyapunov": lyapunov, **extra}
         self._prev_obs = obs.copy()
         return obs, reward, terminated, truncated, info
