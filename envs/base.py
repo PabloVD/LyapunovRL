@@ -50,6 +50,15 @@ class LyapunovWrapper(gym.Wrapper, ABC):
         self._prev_obs = obs.copy()
         return obs, info
 
+    @staticmethod
+    def phi_terms(obs: np.ndarray) -> dict[str, float]:
+        """Decompose phi into named components for per-term TensorBoard logging.
+
+        Override to log individual Lyapunov contributions in TensorBoard.
+        Default: empty dict → logged as a single 'lyapunov' term.
+        """
+        return {}
+
     def shaping_reward(self, obs: np.ndarray, action: np.ndarray,
                        next_obs: np.ndarray, terminated: bool) -> dict[str, float]:
         """Extra reward terms added on top of the Lyapunov term.
@@ -64,10 +73,19 @@ class LyapunovWrapper(gym.Wrapper, ABC):
         phi_prev = self.__class__.phi(self._prev_obs)
         phi_next = self.__class__.phi(obs)
         lyapunov = float(phi_prev - phi_next)
+
+        terms_prev = self.__class__.phi_terms(self._prev_obs)
+        terms_next = self.__class__.phi_terms(obs)
+        if terms_prev:
+            lyapunov_terms = {f"lyapunov_{k}": float(terms_prev[k] - terms_next[k])
+                              for k in terms_prev}
+        else:
+            lyapunov_terms = {"lyapunov": lyapunov}
+
         extra = self.shaping_reward(self._prev_obs, action, obs, terminated)
         reward = lyapunov + sum(extra.values())
         info["phi_prev"] = phi_prev
         info["phi_next"] = phi_next
-        info["reward_terms"] = {"lyapunov": lyapunov, **extra}
+        info["reward_terms"] = {**lyapunov_terms, **extra}
         self._prev_obs = obs.copy()
         return obs, reward, terminated, truncated, info

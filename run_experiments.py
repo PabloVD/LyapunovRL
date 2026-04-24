@@ -17,6 +17,7 @@ from datetime import datetime
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--total_steps", type=int, default=100_000)
+    parser.add_argument("--num_seeds", type=int, default=5)
     parser.add_argument("--device", type=str, default="cuda")
     parser.add_argument("--env_id", type=str, default="Pendulum-v1")
     parser.add_argument("--exp_id", type=str, default=None,
@@ -28,7 +29,7 @@ def main():
     runs = [
         {"condition": cond, "seed": seed}
         for cond in ["A", "B"]
-        for seed in range(5)
+        for seed in range(args.num_seeds)
     ]
 
     print(f"Experiment: {exp_id}")
@@ -49,8 +50,13 @@ def main():
         ]
         subprocess.run(cmd, check=True)
 
-    print(f"\nAll runs complete. Evaluate with:")
-    print(f"  uv run python evaluate.py --env_id {args.env_id} --exp_id {exp_id}")
+    print("\nAll runs complete. Running evaluation...")
+    subprocess.run([
+        sys.executable, "evaluate.py",
+        "--env_id", args.env_id,
+        "--exp_id", exp_id,
+        "--device", args.device,
+    ], check=True)
 
 
 if __name__ == "__main__":

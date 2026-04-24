@@ -38,6 +38,16 @@ class LyapunovMountainCar(LyapunovWrapper):
         return float(max(0.0, _E_REF - energy))
 
     @staticmethod
+    def phi_terms(obs: np.ndarray) -> dict[str, float]:
+        # When both states are inside the deficit region the deltas sum to the
+        # Lyapunov reward exactly. At the clamp boundary they diverge slightly.
+        x, v = obs[0], obs[1]
+        return {
+            "kinetic": float(0.5 * v ** 2),
+            "potential": float(_GRAVITY * np.sin(3.0 * x)),
+        }
+
+    @staticmethod
     def phi_torch(obs: torch.Tensor) -> torch.Tensor:
         x = obs[..., 0:1]
         v = obs[..., 1:2]

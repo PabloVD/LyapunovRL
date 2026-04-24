@@ -27,6 +27,14 @@ class LyapunovPendulum(LyapunovWrapper):
         return float((1.0 - cos_th) + 0.5 * theta_dot ** 2)
 
     @staticmethod
+    def phi_terms(obs: np.ndarray) -> dict[str, float]:
+        cos_th, _, theta_dot = obs[0], obs[1], obs[2]
+        return {
+            "position": float(1.0 - cos_th),
+            "velocity": float(0.5 * theta_dot ** 2),
+        }
+
+    @staticmethod
     def phi_torch(obs: torch.Tensor) -> torch.Tensor:
         cos_th = obs[..., 0:1]
         theta_dot = obs[..., 2:3]

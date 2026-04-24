@@ -26,7 +26,7 @@ ENV_REGISTRY: dict[str, type[LyapunovWrapper]] = {
     "MountainCarContinuous-v0": LyapunovMountainCar,
 }
 
-COLORS = {"A": "#4C72B0", "B": "#DD8452"}
+COLORS = {"A": "#3269FF", "B": "#E01A1D"}
 LABELS = {"A": "Condition A — standard critic", "B": "Condition B — Lyapunov structured"}
 
 plt.rcParams.update({
