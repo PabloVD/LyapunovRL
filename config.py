@@ -19,5 +19,6 @@ class Config:
     hidden_dim: int = 64
     device: str = "cuda"
     env_id: str = "Pendulum-v1"
+    native_reward: bool = False  # use env's original reward instead of Lyapunov
     log_interval: int = 1       # log every N updates
     run_name: str = ""          # auto-set in train.py if empty

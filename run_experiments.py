@@ -22,13 +22,16 @@ def main():
     parser.add_argument("--env_id", type=str, default="Pendulum-v1")
     parser.add_argument("--exp_id", type=str, default=None,
                         help="Experiment folder name. Defaults to a timestamp.")
+    parser.add_argument("--native_reward", action="store_true",
+                        help="Use env's original reward. Only runs condition A.")
     args = parser.parse_args()
 
     exp_id = args.exp_id or datetime.now().strftime("%Y%m%d_%H%M%S")
+    conditions = ["A"] if args.native_reward else ["A", "B"]
 
     runs = [
         {"condition": cond, "seed": seed}
-        for cond in ["A", "B"]
+        for cond in conditions
         for seed in range(args.num_seeds)
     ]
 
@@ -48,6 +51,8 @@ def main():
             "--env_id", args.env_id,
             "--run_name", run_name,
         ]
+        if args.native_reward:
+            cmd.append("--native_reward")
         subprocess.run(cmd, check=True)
 
     print("\nAll runs complete. Running evaluation...")

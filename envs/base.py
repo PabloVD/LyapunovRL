@@ -18,9 +18,10 @@ class LyapunovWrapper(gym.Wrapper, ABC):
     act_dim: int
     action_clip: tuple[float, float]  # (low, high) for action clipping
 
-    def __init__(self, env: gym.Env):
+    def __init__(self, env: gym.Env, native_reward: bool = False):
         super().__init__(env)
         self._prev_obs: np.ndarray | None = None
+        self._native_reward = native_reward
 
     @staticmethod
     @abstractmethod
@@ -69,7 +70,13 @@ class LyapunovWrapper(gym.Wrapper, ABC):
         return {}
 
     def step(self, action):
-        obs, _native_reward, terminated, truncated, info = self.env.step(action)
+        obs, native_reward, terminated, truncated, info = self.env.step(action)
+
+        if self._native_reward:
+            info["reward_terms"] = {"native": float(native_reward)}
+            self._prev_obs = obs.copy()
+            return obs, native_reward, terminated, truncated, info
+
         phi_prev = self.__class__.phi(self._prev_obs)
         phi_next = self.__class__.phi(obs)
         lyapunov = float(phi_prev - phi_next)

@@ -18,8 +18,9 @@ class LyapunovPendulum(LyapunovWrapper):
     act_dim = 1
     action_clip = (-2.0, 2.0)
 
-    def __init__(self, render_mode=None):
-        super().__init__(gym.make("Pendulum-v1", render_mode=render_mode))
+    def __init__(self, render_mode=None, native_reward: bool = False):
+        super().__init__(gym.make("Pendulum-v1", render_mode=render_mode),
+                         native_reward=native_reward)
 
     @staticmethod
     def phi(obs: np.ndarray) -> float:
@@ -52,3 +53,5 @@ class LyapunovPendulum(LyapunovWrapper):
         return {
             "action_penalty": -0.001 * float(np.sum(action ** 2)),
         }
+
+

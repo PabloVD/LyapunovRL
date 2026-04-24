@@ -28,8 +28,9 @@ class LyapunovMountainCar(LyapunovWrapper):
     act_dim = 1
     action_clip = (-1.0, 1.0)
 
-    def __init__(self, render_mode=None):
-        super().__init__(gym.make("MountainCarContinuous-v0", render_mode=render_mode))
+    def __init__(self, render_mode=None, native_reward: bool = False):
+        super().__init__(gym.make("MountainCarContinuous-v0", render_mode=render_mode),
+                         native_reward=native_reward)
 
     @staticmethod
     def phi(obs: np.ndarray) -> float:
@@ -66,6 +67,6 @@ class LyapunovMountainCar(LyapunovWrapper):
     def shaping_reward(self, obs, action, next_obs, terminated) -> dict[str, float]:
         return {
             "action_penalty": -0.1 * float(np.sum(action ** 2)),
-            "success_bonus": 100.0 if terminated else 0.0,
+            "success_bonus": 10.0 if terminated else 0.0,
         }
 

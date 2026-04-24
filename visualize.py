@@ -89,6 +89,8 @@ def main():
     parser.add_argument("--out_dir", type=str, default="plots")
     parser.add_argument("--hidden_dim", type=int, default=64)
     parser.add_argument("--device", type=str, default="cuda")
+    parser.add_argument("--native_reward", action="store_true",
+                        help="Visualize a policy trained with --native_reward.")
     args = parser.parse_args()
 
     env_class = ENV_REGISTRY[args.env_id]
@@ -101,7 +103,7 @@ def main():
                        hidden_dim=args.hidden_dim, device=device)
 
     render_mode = "rgb_array" if args.save else "human"
-    env = env_class(render_mode=render_mode)
+    env = env_class(render_mode=render_mode, native_reward=args.native_reward)
 
     all_frames = []
     for ep in range(args.n_episodes):

@@ -43,7 +43,7 @@ def train(cfg: Config):
     run_dir = f"runs/{cfg.env_id}/{cfg.run_name}"
     writer = SummaryWriter(log_dir=run_dir)
     env_class = ENV_REGISTRY[cfg.env_id]
-    env = env_class()
+    env = env_class(native_reward=cfg.native_reward)
     trainer = PPOTrainer(cfg, device, writer,
                          obs_dim=env_class.obs_dim, act_dim=env_class.act_dim,
                          phi_fn=env_class.phi_torch)
@@ -54,6 +54,7 @@ def train(cfg: Config):
     ep_reward = 0.0
     ep_len = 0
     ep_reward_terms: dict[str, float] = {}
+    ep_step_rewards: list[float] = []
 
     pbar = tqdm(range(1, n_updates + 1), desc=f"[{cfg.condition}|seed{cfg.seed}]", unit="update")
 
@@ -84,6 +85,7 @@ def train(cfg: Config):
 
             ep_reward += reward
             ep_len += 1
+            ep_step_rewards.append(float(reward))
             for k, v in info.get("reward_terms", {}).items():
                 ep_reward_terms[k] = ep_reward_terms.get(k, 0.0) + v
             obs = next_obs
@@ -94,9 +96,14 @@ def train(cfg: Config):
                 writer.add_scalar("train/ep_len", ep_len, trainer.global_step)
                 for k, v in ep_reward_terms.items():
                     writer.add_scalar(f"train/ep_{k}", v, trainer.global_step)
+                if len(ep_step_rewards) > 1:
+                    r_arr = np.array(ep_step_rewards)
+                    snr = r_arr.mean() / (r_arr.std() + 1e-8)
+                    writer.add_scalar("train/ep_reward_snr", snr, trainer.global_step)
                 ep_reward = 0.0
                 ep_len = 0
                 ep_reward_terms = {}
+                ep_step_rewards = []
                 obs, _ = env.reset()
 
         with torch.no_grad():
@@ -125,6 +132,8 @@ def parse_args() -> Config:
     parser.add_argument("--gamma", type=float, default=0.99)
     parser.add_argument("--device", type=str, default="cuda")
     parser.add_argument("--env_id", type=str, default="Pendulum-v1")
+    parser.add_argument("--native_reward", action="store_true",
+                        help="Use the env's original reward instead of Lyapunov shaping.")
     parser.add_argument("--run_name", type=str, default="")
     args = parser.parse_args()
     cfg = Config(
@@ -134,6 +143,7 @@ def parse_args() -> Config:
         gamma=args.gamma,
         device=args.device,
         env_id=args.env_id,
+        native_reward=args.native_reward,
         run_name=args.run_name,
     )
     return cfg
