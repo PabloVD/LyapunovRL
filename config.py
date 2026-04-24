@@ -1,4 +1,10 @@
+from __future__ import annotations
+
+import dataclasses
 from dataclasses import dataclass
+from pathlib import Path
+
+import yaml
 
 
 @dataclass
@@ -23,3 +29,15 @@ class Config:
     zero_init_residual: bool = True  # zero-init residual head in CriticB so V≈Φ at t=0
     log_interval: int = 1       # log every N updates
     run_name: str = ""          # auto-set in train.py if empty
+
+    @classmethod
+    def from_yaml(cls, path: str | Path) -> Config:
+        with open(path) as f:
+            data = yaml.safe_load(f)
+        fields = {f.name for f in dataclasses.fields(cls)}
+        return cls(**{k: v for k, v in data.items() if k in fields})
+
+    def save(self, path: str | Path) -> None:
+        Path(path).parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "w") as f:
+            yaml.dump(dataclasses.asdict(self), f, default_flow_style=False, sort_keys=False)

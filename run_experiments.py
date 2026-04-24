@@ -27,8 +27,6 @@ def main():
                         help="Run only this condition. Defaults to both A and B.")
     parser.add_argument("--native_reward", action="store_true",
                         help="Use env's original reward. Only runs condition A.")
-    parser.add_argument("--zero_init_residual", action="store_true",
-                        help="Zero-init the residual head in CriticB (condition B only).")
     args = parser.parse_args()
 
     exp_id = args.exp_id or datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -63,8 +61,6 @@ def main():
         ]
         if args.native_reward:
             cmd.append("--native_reward")
-        if args.zero_init_residual:
-            cmd.append("--zero_init_residual")
         subprocess.run(cmd, check=True)
 
     print("\nAll runs complete. Running evaluation...")

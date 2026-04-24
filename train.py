@@ -43,6 +43,7 @@ def train(cfg: Config):
     device = torch.device(cfg.device if torch.cuda.is_available() else "cpu")
 
     run_dir = f"runs/{cfg.env_id}/{cfg.run_name}"
+    cfg.save(f"{run_dir}/config.yaml")
     writer = SummaryWriter(log_dir=run_dir)
     env_class = ENV_REGISTRY[cfg.env_id]
     env = env_class(native_reward=cfg.native_reward)
@@ -130,30 +131,26 @@ def train(cfg: Config):
 
 def parse_args() -> Config:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--condition", type=str, default="A", choices=["A", "B"])
-    parser.add_argument("--seed", type=int, default=0)
-    parser.add_argument("--total_steps", type=int, default=300_000)
-    parser.add_argument("--gamma", type=float, default=0.99)
-    parser.add_argument("--device", type=str, default="cuda")
-    parser.add_argument("--env_id", type=str, default="Pendulum-v1",
-                        choices=list(ENV_REGISTRY))
-    parser.add_argument("--native_reward", action="store_true",
+    parser.add_argument("--config", type=str, default=None,
+                        help="Path to a YAML config file. CLI flags override YAML values.")
+    parser.add_argument("--condition", type=str, default=None, choices=["A", "B"])
+    parser.add_argument("--seed", type=int, default=None)
+    parser.add_argument("--total_steps", type=int, default=None)
+    parser.add_argument("--gamma", type=float, default=None)
+    parser.add_argument("--device", type=str, default=None)
+    parser.add_argument("--env_id", type=str, default=None, choices=list(ENV_REGISTRY))
+    parser.add_argument("--native_reward", action="store_true", default=None,
                         help="Use the env's original reward instead of Lyapunov shaping.")
-    parser.add_argument("--zero_init_residual", action="store_true",
-                        help="Zero-init the residual head in CriticB so V≈Φ at training start.")
-    parser.add_argument("--run_name", type=str, default="")
+    parser.add_argument("--run_name", type=str, default=None)
     args = parser.parse_args()
-    cfg = Config(
-        condition=args.condition,
-        seed=args.seed,
-        total_steps=args.total_steps,
-        gamma=args.gamma,
-        device=args.device,
-        env_id=args.env_id,
-        native_reward=args.native_reward,
-        zero_init_residual=args.zero_init_residual,
-        run_name=args.run_name,
-    )
+
+    cfg = Config.from_yaml(args.config) if args.config else Config()
+
+    overrides = {k: v for k, v in vars(args).items()
+                 if k != "config" and v is not None}
+    for k, v in overrides.items():
+        setattr(cfg, k, v)
+
     return cfg
 
 
