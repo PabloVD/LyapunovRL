@@ -82,6 +82,8 @@ def main():
                         choices=list(ENV_REGISTRY))
     parser.add_argument("--n_episodes", type=int, default=3)
     parser.add_argument("--runs_dir", type=str, default="runs")
+    parser.add_argument("--exp_id", type=str, default="",
+                        help="Experiment subfolder created by run_experiments.py")
     parser.add_argument("--save", action="store_true",
                         help="Save a GIF instead of opening a live window")
     parser.add_argument("--out_dir", type=str, default="plots")
@@ -90,7 +92,8 @@ def main():
     args = parser.parse_args()
 
     env_class = ENV_REGISTRY[args.env_id]
-    run_dir = os.path.join(args.runs_dir, args.env_id,
+    exp_part = [args.exp_id] if args.exp_id else []
+    run_dir = os.path.join(args.runs_dir, args.env_id, *exp_part,
                            f"condition_{args.condition}_seed_{args.seed}")
     device = args.device if torch.cuda.is_available() else "cpu"
 

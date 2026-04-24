@@ -238,13 +238,19 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--runs_dir", type=str, default="runs")
     parser.add_argument("--env_id", type=str, default="Pendulum-v1", choices=list(ENV_REGISTRY))
+    parser.add_argument("--exp_id", type=str, default="",
+                        help="Experiment subfolder created by run_experiments.py")
     parser.add_argument("--out_dir", type=str, default="plots")
     parser.add_argument("--device", type=str, default="cuda")
     args = parser.parse_args()
 
     env_class = ENV_REGISTRY[args.env_id]
     env_runs_dir = os.path.join(args.runs_dir, args.env_id)
+    if args.exp_id:
+        env_runs_dir = os.path.join(env_runs_dir, args.exp_id)
     out_dir = os.path.join(args.out_dir, args.env_id)
+    if args.exp_id:
+        out_dir = os.path.join(out_dir, args.exp_id)
     os.makedirs(out_dir, exist_ok=True)
 
     plot_learning_curves(env_runs_dir, out_dir)

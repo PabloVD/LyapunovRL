@@ -52,3 +52,9 @@ class LyapunovMountainCar(LyapunovWrapper):
         XS, VS = np.meshgrid(xs, vs)
         states = np.stack([XS, VS], axis=-1).reshape(-1, 2).astype(np.float32)
         return XS, VS, states
+    
+    def shaping_reward(self, obs, action, next_obs, terminated) -> float:
+        action_penalty = -0.1 * float(np.sum(action ** 2))
+        success_bonus = 1.0 if terminated else 0.0
+        return action_penalty + success_bonus
+

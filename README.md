@@ -112,3 +112,7 @@ uv run python visualize.py --condition B --seed 0 --save
 4. **Value function quality**: compare learned V(s) vs. true Φ(s) on a grid of states
 5. **Policy quality**: render/evaluate final policy qualitatively
 6. **MSE**: compare MSE(V,return) of the two scenarios
+
+## TODO
+
+- Check if `self.phi_fn(obs) + f_theta` is correct or should we use prev obs
