@@ -19,6 +19,7 @@ class Config:
     hidden_dim: int = 64
     device: str = "cuda"
     env_id: str = "Pendulum-v1"
-    native_reward: bool = False  # use env's original reward instead of Lyapunov
+    native_reward: bool = False   # use env's original reward instead of Lyapunov
+    zero_init_residual: bool = True  # zero-init residual head in CriticB so V≈Φ at t=0
     log_interval: int = 1       # log every N updates
     run_name: str = ""          # auto-set in train.py if empty

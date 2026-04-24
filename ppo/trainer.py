@@ -18,7 +18,9 @@ class PPOTrainer:
         self.writer = writer
 
         self.actor = Actor(obs_dim, act_dim, cfg.hidden_dim).to(device)
-        self.critic = make_critic(cfg.condition, obs_dim, cfg.hidden_dim, phi_fn=phi_fn).to(device)
+        self.critic = make_critic(cfg.condition, obs_dim, cfg.hidden_dim,
+                                  phi_fn=phi_fn,
+                                  zero_init_residual=cfg.zero_init_residual).to(device)
 
         self.actor_opt = torch.optim.Adam(self.actor.parameters(), lr=cfg.lr)
         self.critic_opt = torch.optim.Adam(self.critic.parameters(), lr=cfg.lr)

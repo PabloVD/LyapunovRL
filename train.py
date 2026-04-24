@@ -102,7 +102,7 @@ def train(cfg: Config):
                     r_arr = np.array(ep_step_rewards)
                     discounts = cfg.gamma ** np.arange(len(r_arr))
                     dr_arr = discounts * r_arr
-                    snr = dr_arr.mean() / (dr_arr.std() + 1e-8)
+                    snr = np.abs(dr_arr.mean()) / (dr_arr.std() + 1e-8)
                     writer.add_scalar("train/ep_reward_snr", snr, trainer.global_step)
                 ep_reward = 0.0
                 ep_len = 0
@@ -139,6 +139,8 @@ def parse_args() -> Config:
                         choices=list(ENV_REGISTRY))
     parser.add_argument("--native_reward", action="store_true",
                         help="Use the env's original reward instead of Lyapunov shaping.")
+    parser.add_argument("--zero_init_residual", action="store_true",
+                        help="Zero-init the residual head in CriticB so V≈Φ at training start.")
     parser.add_argument("--run_name", type=str, default="")
     args = parser.parse_args()
     cfg = Config(
@@ -149,6 +151,7 @@ def parse_args() -> Config:
         device=args.device,
         env_id=args.env_id,
         native_reward=args.native_reward,
+        zero_init_residual=args.zero_init_residual,
         run_name=args.run_name,
     )
     return cfg

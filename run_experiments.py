@@ -6,6 +6,7 @@ Usage:
     uv run python run_experiments.py --env_id MountainCarContinuous-v0
     uv run python run_experiments.py --total_steps 300000 --device cuda
     uv run python run_experiments.py --exp_id my_exp   # custom experiment name
+    uv run python run_experiments.py --condition B     # only condition B
 """
 
 import argparse
@@ -22,12 +23,21 @@ def main():
     parser.add_argument("--env_id", type=str, default="Pendulum-v1")
     parser.add_argument("--exp_id", type=str, default=None,
                         help="Experiment folder name. Defaults to a timestamp.")
+    parser.add_argument("--condition", type=str, default=None, choices=["A", "B"],
+                        help="Run only this condition. Defaults to both A and B.")
     parser.add_argument("--native_reward", action="store_true",
                         help="Use env's original reward. Only runs condition A.")
+    parser.add_argument("--zero_init_residual", action="store_true",
+                        help="Zero-init the residual head in CriticB (condition B only).")
     args = parser.parse_args()
 
     exp_id = args.exp_id or datetime.now().strftime("%Y%m%d_%H%M%S")
-    conditions = ["A"] if args.native_reward else ["A", "B"]
+    if args.native_reward:
+        conditions = ["A"]
+    elif args.condition:
+        conditions = [args.condition]
+    else:
+        conditions = ["A", "B"]
 
     runs = [
         {"condition": cond, "seed": seed}
@@ -53,6 +63,8 @@ def main():
         ]
         if args.native_reward:
             cmd.append("--native_reward")
+        if args.zero_init_residual:
+            cmd.append("--zero_init_residual")
         subprocess.run(cmd, check=True)
 
     print("\nAll runs complete. Running evaluation...")

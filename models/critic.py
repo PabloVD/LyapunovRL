@@ -29,7 +29,8 @@ class CriticB(nn.Module):
     The last layer is zero-initialized so V ≈ Φ at training start.
     """
 
-    def __init__(self, obs_dim: int, phi_fn: Callable[[torch.Tensor], torch.Tensor], hidden_dim: int = 64):
+    def __init__(self, obs_dim: int, phi_fn: Callable[[torch.Tensor], torch.Tensor],
+                 hidden_dim: int = 64, zero_init_residual: bool = False):
         super().__init__()
         self.phi_fn = phi_fn
         self.net = nn.Sequential(
@@ -37,8 +38,9 @@ class CriticB(nn.Module):
             nn.Linear(hidden_dim, hidden_dim), nn.Tanh(),
         )
         self.residual_head = nn.Linear(hidden_dim, 1)
-        nn.init.zeros_(self.residual_head.weight)
-        nn.init.zeros_(self.residual_head.bias)
+        if zero_init_residual:
+            nn.init.zeros_(self.residual_head.weight)
+            nn.init.zeros_(self.residual_head.bias)
 
     def forward(self, obs: torch.Tensor) -> torch.Tensor:
         f_theta = self.residual_head(self.net(obs))
@@ -53,11 +55,12 @@ def make_critic(
     obs_dim: int,
     hidden_dim: int = 64,
     phi_fn: Callable[[torch.Tensor], torch.Tensor] | None = None,
+    zero_init_residual: bool = False,
 ) -> nn.Module:
     if condition == "A":
         return CriticA(obs_dim, hidden_dim)
     elif condition == "B":
         if phi_fn is None:
             raise ValueError("Condition B requires phi_fn — pass env_class.phi_torch.")
-        return CriticB(obs_dim, phi_fn, hidden_dim)
+        return CriticB(obs_dim, phi_fn, hidden_dim, zero_init_residual=zero_init_residual)
     raise ValueError(f"Unknown condition: {condition!r}. Use 'A' or 'B'.")
