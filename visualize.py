@@ -18,6 +18,7 @@ import torch
 from PIL import Image
 
 from envs.base import LyapunovWrapper
+from envs.cartpole import LyapunovCartPole
 from envs.mountain_car import LyapunovMountainCar
 from envs.pendulum import LyapunovPendulum
 from models.actor import Actor
@@ -25,6 +26,7 @@ from models.actor import Actor
 ENV_REGISTRY: dict[str, type[LyapunovWrapper]] = {
     "Pendulum-v1": LyapunovPendulum,
     "MountainCarContinuous-v0": LyapunovMountainCar,
+    "CartPoleContinuous-v0": LyapunovCartPole,
 }
 
 

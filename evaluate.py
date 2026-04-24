@@ -16,6 +16,7 @@ import torch
 from tensorboard.backend.event_processing.event_accumulator import EventAccumulator
 
 from envs.base import LyapunovWrapper
+from envs.cartpole import LyapunovCartPole
 from envs.mountain_car import LyapunovMountainCar
 from envs.pendulum import LyapunovPendulum
 from models.actor import Actor
@@ -24,6 +25,7 @@ from models.critic import make_critic
 ENV_REGISTRY: dict[str, type[LyapunovWrapper]] = {
     "Pendulum-v1": LyapunovPendulum,
     "MountainCarContinuous-v0": LyapunovMountainCar,
+    "CartPoleContinuous-v0": LyapunovCartPole,
 }
 
 COLORS = {"A": "#3269FF", "B": "#E01A1D"}
@@ -196,6 +198,7 @@ def plot_value_loss(runs_dir: str, out_dir: str):
 AXIS_LABELS = {
     "Pendulum-v1": ("θ (rad)", "θ̇ (rad/s)"),
     "MountainCarContinuous-v0": ("x (position)", "v (velocity)"),
+    "CartPoleContinuous-v0": ("θ (rad)", "θ̇ (rad/s)"),
 }
 
 def plot_value_heatmaps(run_name_A: str, run_name_B: str, runs_dir: str,

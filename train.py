@@ -16,6 +16,7 @@ from tqdm import tqdm
 
 from config import Config
 from envs.base import LyapunovWrapper
+from envs.cartpole import LyapunovCartPole
 from envs.pendulum import LyapunovPendulum
 from envs.mountain_car import LyapunovMountainCar
 from ppo.trainer import PPOTrainer
@@ -23,6 +24,7 @@ from ppo.trainer import PPOTrainer
 ENV_REGISTRY: dict[str, type[LyapunovWrapper]] = {
     "Pendulum-v1": LyapunovPendulum,
     "MountainCarContinuous-v0": LyapunovMountainCar,
+    "CartPoleContinuous-v0": LyapunovCartPole,
 }
 
 
@@ -98,7 +100,9 @@ def train(cfg: Config):
                     writer.add_scalar(f"train/ep_{k}", v, trainer.global_step)
                 if len(ep_step_rewards) > 1:
                     r_arr = np.array(ep_step_rewards)
-                    snr = r_arr.mean() / (r_arr.std() + 1e-8)
+                    discounts = cfg.gamma ** np.arange(len(r_arr))
+                    dr_arr = discounts * r_arr
+                    snr = dr_arr.mean() / (dr_arr.std() + 1e-8)
                     writer.add_scalar("train/ep_reward_snr", snr, trainer.global_step)
                 ep_reward = 0.0
                 ep_len = 0
@@ -131,7 +135,8 @@ def parse_args() -> Config:
     parser.add_argument("--total_steps", type=int, default=300_000)
     parser.add_argument("--gamma", type=float, default=0.99)
     parser.add_argument("--device", type=str, default="cuda")
-    parser.add_argument("--env_id", type=str, default="Pendulum-v1")
+    parser.add_argument("--env_id", type=str, default="Pendulum-v1",
+                        choices=list(ENV_REGISTRY))
     parser.add_argument("--native_reward", action="store_true",
                         help="Use the env's original reward instead of Lyapunov shaping.")
     parser.add_argument("--run_name", type=str, default="")
