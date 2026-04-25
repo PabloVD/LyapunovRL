@@ -15,6 +15,7 @@ from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 
 from config import Config
+from envs.ant import LyapunovAnt
 from envs.base import LyapunovWrapper
 from envs.cartpole import LyapunovCartPole
 from envs.pendulum import LyapunovPendulum
@@ -25,6 +26,7 @@ ENV_REGISTRY: dict[str, type[LyapunovWrapper]] = {
     "Pendulum-v1": LyapunovPendulum,
     "MountainCarContinuous-v0": LyapunovMountainCar,
     "CartPoleContinuous-v0": LyapunovCartPole,
+    "Ant-v4": LyapunovAnt,
 }
 
 
@@ -46,7 +48,22 @@ def train(cfg: Config):
     cfg.save(f"{run_dir}/config.yaml")
     writer = SummaryWriter(log_dir=run_dir)
     env_class = ENV_REGISTRY[cfg.env_id]
+
+    # Apply target velocity to Ant before creating the env.
+    if hasattr(env_class, "_target_vx"):
+        env_class._target_vx = cfg.target_velocity
+
     env = env_class(native_reward=cfg.native_reward)
+
+    # Wrap with running-stats observation normalisation when requested.
+    # NormalizeObservation is applied OUTSIDE LyapunovWrapper so that reward
+    # computation (Φ(s_t) − Φ(s_{t+1})) always sees raw observations.
+    norm_env = None
+    if cfg.normalize_obs:
+        import gymnasium
+        norm_env = gymnasium.wrappers.NormalizeObservation(env)
+        env = norm_env
+
     trainer = PPOTrainer(cfg, device, writer,
                          obs_dim=env_class.obs_dim, act_dim=env_class.act_dim,
                          phi_fn=env_class.phi_torch)
@@ -115,6 +132,12 @@ def train(cfg: Config):
             obs_t = torch.tensor(obs, dtype=torch.float32, device=device).unsqueeze(0)
             last_value = trainer.critic(obs_t).squeeze().item()
 
+        # Sync normaliser stats into the env class so phi_torch can denormalise
+        # when condition B is used with normalize_obs.
+        if norm_env is not None and hasattr(env_class, "obs_rms_mean"):
+            env_class.obs_rms_mean = norm_env.obs_rms.mean.copy()
+            env_class.obs_rms_std = np.sqrt(norm_env.obs_rms.var + 1e-8)
+
         trainer.update(last_value)
 
         mean_r = np.mean(ep_rewards[-10:]) if ep_rewards else float("nan")
@@ -141,6 +164,10 @@ def parse_args() -> Config:
     parser.add_argument("--env_id", type=str, default=None, choices=list(ENV_REGISTRY))
     parser.add_argument("--native_reward", action="store_true", default=None,
                         help="Use the env's original reward instead of Lyapunov shaping.")
+    parser.add_argument("--normalize_obs", action="store_true", default=None,
+                        help="Wrap env with running-stats NormalizeObservation (recommended for MuJoCo).")
+    parser.add_argument("--target_velocity", type=float, default=None,
+                        help="Target forward speed for Ant-v4 Lyapunov function (m/s).")
     parser.add_argument("--run_name", type=str, default=None)
     args = parser.parse_args()
 

@@ -10,8 +10,9 @@ class LyapunovWrapper(gym.Wrapper, ABC):
     Base wrapper that replaces the native environment reward with:
         R_t = Φ(s_t) - Φ(s_{t+1})
 
-    Subclasses must implement phi, phi_torch, and state_grid.
-    They should also set obs_dim, act_dim, and action_clip as class attributes.
+    Subclasses must implement phi and phi_torch, and set obs_dim, act_dim,
+    and action_clip as class attributes. Override state_grid to support
+    value-function heatmap visualisation (default returns None).
     """
 
     obs_dim: int
@@ -39,12 +40,12 @@ class LyapunovWrapper(gym.Wrapper, ABC):
         ...
 
     @staticmethod
-    @abstractmethod
-    def state_grid(n: int = 50) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    def state_grid(n: int = 50) -> tuple[np.ndarray | None, np.ndarray | None, np.ndarray | None]:
         """Return (axis1_grid, axis2_grid, states) for value visualisation.
         states has shape (n*n, obs_dim).
+        Returns (None, None, None) by default; override when visualisation is supported.
         """
-        ...
+        return (None, None, None)
 
     def reset(self, **kwargs):
         obs, info = self.env.reset(**kwargs)

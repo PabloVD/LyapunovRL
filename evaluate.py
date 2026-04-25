@@ -15,6 +15,7 @@ import numpy as np
 import torch
 from tensorboard.backend.event_processing.event_accumulator import EventAccumulator
 
+from envs.ant import LyapunovAnt
 from envs.base import LyapunovWrapper
 from envs.cartpole import LyapunovCartPole
 from envs.mountain_car import LyapunovMountainCar
@@ -26,6 +27,7 @@ ENV_REGISTRY: dict[str, type[LyapunovWrapper]] = {
     "Pendulum-v1": LyapunovPendulum,
     "MountainCarContinuous-v0": LyapunovMountainCar,
     "CartPoleContinuous-v0": LyapunovCartPole,
+    "Ant-v4": LyapunovAnt,
 }
 
 COLORS = {"A": "#3269FF", "B": "#E01A1D"}
@@ -110,6 +112,8 @@ def eval_policy(actor: Actor, env: LyapunovWrapper, n_episodes: int = 10, device
 
 def value_grid(critic, env_class: type[LyapunovWrapper], device, n=50):
     ax1, ax2, states = env_class.state_grid(n)
+    if states is None:
+        return None, None, None, None
     states_t = torch.tensor(states, device=device)
     with torch.no_grad():
         phi_vals = env_class.phi_torch(states_t).cpu().numpy().reshape(n, n)
@@ -261,8 +265,11 @@ def main():
 
     run_A = "condition_A_seed_0"
     run_B = "condition_B_seed_0"
-    if os.path.exists(os.path.join(env_runs_dir, run_A, "critic.pt")) and \
-       os.path.exists(os.path.join(env_runs_dir, run_B, "critic.pt")):
+    grid_supported = env_class.state_grid()[0] is not None
+    if not grid_supported:
+        print(f"Skipping value heatmaps ({args.env_id} does not support state_grid visualisation).")
+    elif os.path.exists(os.path.join(env_runs_dir, run_A, "critic.pt")) and \
+         os.path.exists(os.path.join(env_runs_dir, run_B, "critic.pt")):
         plot_value_heatmaps(run_A, run_B, env_runs_dir, out_dir, env_class, args.env_id, args.device)
     else:
         print("Skipping value heatmaps (no checkpoints found — train first).")

@@ -27,6 +27,8 @@ class Config:
     env_id: str = "Pendulum-v1"
     native_reward: bool = False   # use env's original reward instead of Lyapunov
     zero_init_residual: bool = True  # zero-init residual head in CriticB so V≈Φ at t=0
+    normalize_obs: bool = False   # wrap env with running-stats NormalizeObservation
+    target_velocity: float = 1.0  # target forward speed for LyapunovAnt (m/s)
     log_interval: int = 1       # log every N updates
     run_name: str = ""          # auto-set in train.py if empty
 
