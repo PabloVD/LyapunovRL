@@ -18,28 +18,33 @@ class LyapunovPendulum(LyapunovWrapper):
     act_dim = 1
     action_clip = (-2.0, 2.0)
 
+    # Reward weights
+    k_pos = 1.0
+    k_vel = 0.01 #0.5
+    k_action = 0.0001
+
     def __init__(self, render_mode=None, native_reward: bool = False):
         super().__init__(gym.make("Pendulum-v1", render_mode=render_mode),
                          native_reward=native_reward)
 
-    @staticmethod
-    def phi(obs: np.ndarray) -> float:
+    @classmethod
+    def phi(cls, obs: np.ndarray) -> float:
         cos_th, _, theta_dot = obs[0], obs[1], obs[2]
-        return float((1.0 - cos_th) + 0.5 * theta_dot ** 2)
+        return float(cls.k_pos*(1.0 - cos_th) + cls.k_vel * theta_dot ** 2)
 
-    @staticmethod
-    def phi_terms(obs: np.ndarray) -> dict[str, float]:
+    @classmethod
+    def phi_terms(cls, obs: np.ndarray) -> dict[str, float]:
         cos_th, _, theta_dot = obs[0], obs[1], obs[2]
         return {
-            "position": float(1.0 - cos_th),
-            "velocity": float(0.5 * theta_dot ** 2),
+            "position": float(cls.k_pos * (1.0 - cos_th)),
+            "velocity": float(cls.k_vel * theta_dot ** 2),
         }
 
-    @staticmethod
-    def phi_torch(obs: torch.Tensor) -> torch.Tensor:
+    @classmethod
+    def phi_torch(cls, obs: torch.Tensor) -> torch.Tensor:
         cos_th = obs[..., 0:1]
         theta_dot = obs[..., 2:3]
-        return (1.0 - cos_th) + 0.5 * theta_dot ** 2
+        return cls.k_pos*(1.0 - cos_th) + cls.k_vel * theta_dot ** 2
 
     @staticmethod
     def state_grid(n: int = 50):
@@ -51,7 +56,5 @@ class LyapunovPendulum(LyapunovWrapper):
     
     def shaping_reward(self, obs, action, next_obs, terminated) -> dict[str, float]:
         return {
-            "action_penalty": -0.001 * float(np.sum(action ** 2)),
+            "action_penalty": -self.k_action * float(np.sum(action ** 2)),
         }
-
-

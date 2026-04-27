@@ -52,7 +52,8 @@ class RolloutBuffer:
         for t in range(self.T - 1):
             if not self.episode_ends[t]:
                 self.next_values[t] = self.values[t + 1]
-        self.next_values[self.T - 1] = last_value  # end of rollout, not episode
+        if not self.episode_ends[self.T - 1]:
+            self.next_values[self.T - 1] = last_value  # end of rollout, not episode end
 
         gae = 0.0
         for t in reversed(range(self.T)):
