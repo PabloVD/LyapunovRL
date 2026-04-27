@@ -9,7 +9,7 @@ import yaml
 
 @dataclass
 class Config:
-    condition: str = "A"        # "A" = standard critic, "B" = Lyapunov-structured
+    condition: str = "A"        # "A" = standard critic, "B" = Lyapunov-structured, "C" = bilinear kernel
     seed: int = 0
     total_steps: int = 300_000
     T: int = 2048               # rollout length
@@ -29,6 +29,9 @@ class Config:
     zero_init_residual: bool = True  # zero-init residual head in CriticB so V≈Φ at t=0
     normalize_obs: bool = False   # wrap env with running-stats NormalizeObservation
     target_velocity: float = 1.0  # target forward speed for LyapunovAnt (m/s)
+    lambda_nce: float = 1.0      # weight of InfoNCE contrastive loss (condition C only)
+    feature_dim: int = 64        # kernel embedding dimension (condition C only)
+    nce_context_size: int = 512  # number of context states used for kernel integration
     log_interval: int = 1       # log every N updates
     run_name: str = ""          # auto-set in train.py if empty
 

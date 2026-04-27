@@ -156,7 +156,7 @@ def parse_args() -> Config:
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", type=str, default=None,
                         help="Path to a YAML config file. CLI flags override YAML values.")
-    parser.add_argument("--condition", type=str, default=None, choices=["A", "B"])
+    parser.add_argument("--condition", type=str, default=None, choices=["A", "B", "C"])
     parser.add_argument("--seed", type=int, default=None)
     parser.add_argument("--total_steps", type=int, default=None)
     parser.add_argument("--gamma", type=float, default=None)

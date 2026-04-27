@@ -20,7 +20,8 @@ class PPOTrainer:
         self.actor = Actor(obs_dim, act_dim, cfg.hidden_dim).to(device)
         self.critic = make_critic(cfg.condition, obs_dim, cfg.hidden_dim,
                                   phi_fn=phi_fn,
-                                  zero_init_residual=cfg.zero_init_residual).to(device)
+                                  zero_init_residual=cfg.zero_init_residual,
+                                  feature_dim=cfg.feature_dim).to(device)
 
         self.actor_opt = torch.optim.Adam(self.actor.parameters(), lr=cfg.lr)
         self.critic_opt = torch.optim.Adam(self.critic.parameters(), lr=cfg.lr)
@@ -44,11 +45,24 @@ class PPOTrainer:
         self.buffer.compute_gae(last_value, cfg.gamma, cfg.lam)
         obs, actions, old_log_probs, advantages, returns = self.buffer.get_tensors()
 
+        # Condition C: refresh context buffer from current rollout and build contrastive pairs
+        is_c = cfg.condition == "C"
+        if is_c:
+            ctx_idx = torch.randperm(cfg.T, device=self.device)[:cfg.nce_context_size]
+            self.critic.precompute_context(obs[ctx_idx])
+            anchor_obs, future_obs = self.buffer.get_contrastive_pairs(cfg.gamma)
+
         advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
 
+        nce_loss_val = torch.tensor(0.0, device=self.device)
         for _ in range(cfg.n_epochs):
             indices = torch.randperm(cfg.T, device=self.device)
-            for start in range(0, cfg.T, cfg.batch_size):
+
+            # Shuffle contrastive pairs once per epoch (independent permutation)
+            if is_c:
+                nce_perm = torch.randperm(len(anchor_obs), device=self.device)
+
+            for i, start in enumerate(range(0, cfg.T, cfg.batch_size)):
                 idx = indices[start: start + cfg.batch_size]
 
                 b_obs = obs[idx]
@@ -71,6 +85,16 @@ class PPOTrainer:
 
                 loss = policy_loss + cfg.vf_coef * value_loss + cfg.entropy_coef * entropy_loss
 
+                if is_c:
+                    # Sample a minibatch of contrastive pairs for this step
+                    nce_start = (i * cfg.batch_size) % max(len(anchor_obs), 1)
+                    nce_idx = nce_perm[nce_start: nce_start + cfg.batch_size]
+                    if len(nce_idx) > 0:
+                        nce_loss_val = self.critic.nce_loss(
+                            anchor_obs[nce_idx], future_obs[nce_idx]
+                        )
+                        loss = loss + cfg.lambda_nce * nce_loss_val
+
                 self.actor_opt.zero_grad()
                 self.critic_opt.zero_grad()
                 loss.backward()
@@ -79,12 +103,16 @@ class PPOTrainer:
                 self.actor_opt.step()
                 self.critic_opt.step()
 
-        self._log(policy_loss, value_loss, entropy_loss)
+        self._log(policy_loss, value_loss, entropy_loss, nce_loss_val)
 
-    def _log(self, policy_loss, value_loss, entropy_loss):
+    def _log(self, policy_loss, value_loss, entropy_loss, nce_loss=None):
         s = self.global_step
         self.writer.add_scalar("loss/policy", policy_loss.item(), s)
         self.writer.add_scalar("loss/value", value_loss.item(), s)
         self.writer.add_scalar("loss/entropy", entropy_loss.item(), s)
         if self.cfg.condition == "B" and hasattr(self.critic, "residual_norm"):
             self.writer.add_scalar("critic/residual_norm", self.critic.residual_norm(), s)
+        if self.cfg.condition == "C":
+            if nce_loss is not None:
+                self.writer.add_scalar("loss/nce", nce_loss.item(), s)
+            self.writer.add_scalar("critic/I_mean", self.critic.I_mean(), s)

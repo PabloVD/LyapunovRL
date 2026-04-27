@@ -30,8 +30,12 @@ ENV_REGISTRY: dict[str, type[LyapunovWrapper]] = {
     "Ant-v4": LyapunovAnt,
 }
 
-COLORS = {"A": "#3269FF", "B": "#E01A1D"}
-LABELS = {"A": "Condition A — standard critic", "B": "Condition B — Lyapunov structured"}
+COLORS = {"A": "#3269FF", "B": "#E01A1D", "C": "#1BAA3E"}
+LABELS = {
+    "A": "Condition A — standard critic",
+    "B": "Condition B — Lyapunov structured",
+    "C": "Condition C — bilinear kernel V=Φ−I",
+}
 
 plt.rcParams.update({
     "font.family": "sans-serif",
@@ -55,7 +59,7 @@ def load_tb_scalar(run_dir: str, tag: str) -> tuple[np.ndarray, np.ndarray]:
 
 def collect_curves(runs_dir: str, tag: str, n_seeds: int = 5):
     results = {}
-    for cond in ["A", "B"]:
+    for cond in ["A", "B", "C"]:
         seed_curves = []
         for seed in range(n_seeds):
             run_dir = os.path.join(runs_dir, f"condition_{cond}_seed_{seed}")
@@ -129,14 +133,14 @@ def plot_learning_curves(runs_dir: str, out_dir: str):
 
     # Compute a shared normalisation scale from all conditions so the
     # y-axis is readable regardless of the Lyapunov function's magnitude.
-    aligned = {c: align_curves(curves[c]) for c in ["A", "B"]}
+    aligned = {c: align_curves(curves[c]) for c in ["A", "B", "C"]}
     all_means = [m for _, m, _ in aligned.values() if m is not None]
     scale = max(np.abs(m).max() for m in all_means) if all_means else 1.0
     if scale == 0:
         scale = 1.0
 
     any_plotted = False
-    for cond in ["A", "B"]:
+    for cond in ["A", "B", "C"]:
         grid, mean, std = aligned[cond]
         if grid is None:
             continue
@@ -166,14 +170,14 @@ def plot_value_loss(runs_dir: str, out_dir: str):
     curves = collect_curves(runs_dir, "loss/value")
     fig, ax = plt.subplots(figsize=(9, 5))
 
-    aligned = {c: align_curves(curves[c]) for c in ["A", "B"]}
+    aligned = {c: align_curves(curves[c]) for c in ["A", "B", "C"]}
     all_means = [m for _, m, _ in aligned.values() if m is not None]
     scale = max(m.max() for m in all_means) if all_means else 1.0
     if scale == 0:
         scale = 1.0
 
     any_plotted = False
-    for cond in ["A", "B"]:
+    for cond in ["A", "B", "C"]:
         grid, mean, std = aligned[cond]
         if grid is None:
             continue
@@ -205,33 +209,48 @@ AXIS_LABELS = {
     "CartPoleContinuous-v0": ("θ (rad)", "θ̇ (rad/s)"),
 }
 
-def plot_value_heatmaps(run_name_A: str, run_name_B: str, runs_dir: str,
+def plot_value_heatmaps(run_names: dict[str, str], runs_dir: str,
                         out_dir: str, env_class: type[LyapunovWrapper],
                         env_id: str, device="cuda"):
     obs_dim = env_class.obs_dim
     xlabel, ylabel = AXIS_LABELS.get(env_id, ("dim 0", "dim 1"))
-    fig, axes = plt.subplots(1, 3, figsize=(15, 4))
-    for ax_idx, (condition, run_name, title) in enumerate([
-        ("A", run_name_A, "Condition A: V(s)"),
-        ("B", run_name_B, "Condition B: V(s) = Φ + f"),
-    ]):
+
+    cond_specs = [
+        ("A", "Condition A: V(s)"),
+        ("B", "Condition B: V(s) = Φ + f"),
+        ("C", "Condition C: V(s) = Φ − I"),
+    ]
+    n_cols = len(cond_specs) + 1  # +1 for Φ panel
+    fig, axes = plt.subplots(1, n_cols, figsize=(5 * n_cols, 4))
+
+    phi_vals = ax1 = ax2 = None
+    for ax_idx, (condition, title) in enumerate(cond_specs):
+        run_name = run_names.get(condition)
         critic = make_critic(condition, obs_dim=obs_dim, hidden_dim=64,
                              phi_fn=env_class.phi_torch).to(device)
-        ckpt_path = os.path.join(runs_dir, run_name, "critic.pt")
-        if os.path.exists(ckpt_path):
-            critic.load_state_dict(torch.load(ckpt_path, map_location=device))
-        ax1, ax2, phi_vals, v_vals = value_grid(critic, env_class, device)
+        if run_name:
+            ckpt_path = os.path.join(runs_dir, run_name, "critic.pt")
+            if os.path.exists(ckpt_path):
+                critic.load_state_dict(torch.load(ckpt_path, map_location=device,
+                                                  weights_only=True))
+        _ax1, _ax2, _phi, v_vals = value_grid(critic, env_class, device)
+        if _ax1 is not None:
+            ax1, ax2, phi_vals = _ax1, _ax2, _phi
+        if v_vals is None:
+            axes[ax_idx].set_visible(False)
+            continue
         im = axes[ax_idx].pcolormesh(ax1, ax2, v_vals, cmap="viridis")
         axes[ax_idx].set_title(title)
         axes[ax_idx].set_xlabel(xlabel)
         axes[ax_idx].set_ylabel(ylabel)
         fig.colorbar(im, ax=axes[ax_idx])
 
-    im = axes[2].pcolormesh(ax1, ax2, phi_vals, cmap="viridis")
-    axes[2].set_title("Analytical Φ(s)")
-    axes[2].set_xlabel(xlabel)
-    axes[2].set_ylabel(ylabel)
-    fig.colorbar(im, ax=axes[2])
+    if phi_vals is not None:
+        im = axes[-1].pcolormesh(ax1, ax2, phi_vals, cmap="viridis")
+        axes[-1].set_title("Analytical Φ(s)")
+        axes[-1].set_xlabel(xlabel)
+        axes[-1].set_ylabel(ylabel)
+        fig.colorbar(im, ax=axes[-1])
 
     fig.tight_layout()
     fig.savefig(os.path.join(out_dir, "value_heatmaps.png"), dpi=150)
@@ -263,14 +282,16 @@ def main():
     plot_learning_curves(env_runs_dir, out_dir)
     plot_value_loss(env_runs_dir, out_dir)
 
-    run_A = "condition_A_seed_0"
-    run_B = "condition_B_seed_0"
+    run_names = {c: f"condition_{c}_seed_0" for c in ["A", "B", "C"]}
     grid_supported = env_class.state_grid()[0] is not None
+    any_ckpt = any(
+        os.path.exists(os.path.join(env_runs_dir, rn, "critic.pt"))
+        for rn in run_names.values()
+    )
     if not grid_supported:
         print(f"Skipping value heatmaps ({args.env_id} does not support state_grid visualisation).")
-    elif os.path.exists(os.path.join(env_runs_dir, run_A, "critic.pt")) and \
-         os.path.exists(os.path.join(env_runs_dir, run_B, "critic.pt")):
-        plot_value_heatmaps(run_A, run_B, env_runs_dir, out_dir, env_class, args.env_id, args.device)
+    elif any_ckpt:
+        plot_value_heatmaps(run_names, env_runs_dir, out_dir, env_class, args.env_id, args.device)
     else:
         print("Skipping value heatmaps (no checkpoints found — train first).")
 
