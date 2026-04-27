@@ -120,6 +120,9 @@ def value_grid(critic, env_class: type[LyapunovWrapper], device, n=50):
         return None, None, None, None
     states_t = torch.tensor(states, device=device)
     with torch.no_grad():
+        # CriticC needs a context buffer; seed it from the grid states themselves.
+        if hasattr(critic, "precompute_context"):
+            critic.precompute_context(states_t)
         phi_vals = env_class.phi_torch(states_t).cpu().numpy().reshape(n, n)
         v_vals = critic(states_t).cpu().numpy().reshape(n, n)
     return ax1, ax2, phi_vals, v_vals

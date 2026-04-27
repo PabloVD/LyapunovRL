@@ -91,9 +91,10 @@ class CriticC(nn.Module):
         nn.init.zeros_(self.query_net[-1].weight)
         nn.init.zeros_(self.query_net[-1].bias)
 
-        # Context buffer (filled by precompute_context before each rollout)
-        self.register_buffer("ctx_key_embs", torch.zeros(1, feature_dim))
-        self.register_buffer("ctx_phi_vals", torch.zeros(1))
+        # Context cache — plain attributes, not registered buffers, so they are
+        # excluded from state_dict (they're transient, not learned weights).
+        self.ctx_key_embs: torch.Tensor | None = None
+        self.ctx_phi_vals: torch.Tensor | None = None
 
     @torch.no_grad()
     def precompute_context(self, ctx_obs: torch.Tensor) -> None:
@@ -110,7 +111,9 @@ class CriticC(nn.Module):
         return (weights @ phi_vals.unsqueeze(-1)).squeeze(-1)  # (B,)
 
     def forward(self, obs: torch.Tensor) -> torch.Tensor:
-        # Use cached context (key embeddings are detached for value backprop)
+        if self.ctx_key_embs is None:
+            # No context yet — fall back to V ≈ Φ (matches zero-init intent)
+            return self.phi_fn(obs)
         I_s = self._compute_I(obs, self.ctx_key_embs.detach(), self.ctx_phi_vals.detach())
         return self.phi_fn(obs) - I_s.unsqueeze(-1)
 
