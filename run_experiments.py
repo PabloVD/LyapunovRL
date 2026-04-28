@@ -25,8 +25,8 @@ def main():
     parser.add_argument("--num_seeds", type=int, default=5)
     parser.add_argument("--exp_id", type=str, default=None,
                         help="Experiment folder name. Defaults to a timestamp.")
-    parser.add_argument("--condition", type=str, default=None, choices=["A", "B", "C"],
-                        help="Run only this condition. Defaults to A, B, and C.")
+    parser.add_argument("--condition", type=str, default=None, choices=["A", "B", "C", "D"],
+                        help="Run only this condition. Defaults to A, B, C, and D.")
     # Per-field CLI overrides — all optional, take precedence over YAML when given.
     parser.add_argument("--total_steps", type=int, default=None)
     parser.add_argument("--device", type=str, default=None)
@@ -70,7 +70,7 @@ def main():
     elif args.condition:
         conditions = [args.condition]
     else:
-        conditions = ["A", "B", "C"]
+        conditions = ["A", "B", "C", "D"]
 
     exp_id = args.exp_id or datetime.now().strftime("%Y%m%d_%H%M%S")
     runs = [

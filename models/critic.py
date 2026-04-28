@@ -164,6 +164,92 @@ class CriticC(nn.Module):
         return self.ctx_phi_vals.mean().item() if self.ctx_phi_vals is not None else 0.0
 
 
+LOG_STD_MIN = -5
+LOG_STD_MAX = 2
+
+
+class CriticD(nn.Module):
+    """
+    Condition D: V(s) = Φ(s) − I(s)
+
+    𝒯(s'|s) = 𝒩(μ_θ(s), diag(σ_θ²))   — Gaussian kernel with state-dependent mean
+                                             and shared learnable log-std (like the actor)
+
+    I(s) = E_{s'~𝒯(·|s)}[Φ(s')] estimated by Monte Carlo with the reparameterization
+    trick, so gradients flow through μ_θ during the value loss:
+      s'_k = μ_θ(s) + σ_θ ⊙ ε_k,   ε_k ~ 𝒩(0, I)
+      I(s) ≈ (1/K) Σ_k Φ(s'_k)
+
+    The kernel is trained by NLL of geometrically-lagged future states from rollouts.
+    """
+
+    def __init__(
+        self,
+        obs_dim: int,
+        phi_fn: Callable[[torch.Tensor], torch.Tensor],
+        hidden_dim: int = 64,
+        n_mc_samples: int = 16,
+        action_cost_alpha: float = 0.0,
+        gamma: float = 0.99,
+    ):
+        super().__init__()
+        self.phi_fn = phi_fn
+        self.obs_dim = obs_dim
+        self.n_mc_samples = n_mc_samples
+        self.action_cost_alpha = action_cost_alpha
+        self.gamma = gamma
+
+        self.mean_net = nn.Sequential(
+            nn.Linear(obs_dim, hidden_dim), nn.Tanh(),
+            nn.Linear(hidden_dim, hidden_dim), nn.Tanh(),
+            nn.Linear(hidden_dim, obs_dim),
+        )
+        # Zero-init last layer: μ_θ(s) ≈ 0 at start, so I(s) ≈ Φ(0)
+        nn.init.zeros_(self.mean_net[-1].weight)
+        nn.init.zeros_(self.mean_net[-1].bias)
+
+        # Shared learnable log-std (state-independent), initialised to 0 → std=1
+        self.log_std = nn.Parameter(torch.zeros(obs_dim))
+
+        # Set externally to actor.action_cost when action_cost_alpha > 0
+        self.act_cost_fn: Callable[[torch.Tensor], torch.Tensor] | None = None
+
+    def _sample_future(self, obs: torch.Tensor) -> torch.Tensor:
+        """Return (K, B, obs_dim) reparameterised samples s' ~ 𝒯(·|obs)."""
+        mu = self.mean_net(obs)                                          # (B, obs_dim)
+        std = self.log_std.clamp(LOG_STD_MIN, LOG_STD_MAX).exp()        # (obs_dim,)
+        eps = torch.randn(self.n_mc_samples, obs.shape[0], self.obs_dim,
+                          device=obs.device, dtype=obs.dtype)            # (K, B, obs_dim)
+        return mu.unsqueeze(0) + std * eps                               # (K, B, obs_dim)
+
+    def forward(self, obs: torch.Tensor) -> torch.Tensor:
+        K, B = self.n_mc_samples, obs.shape[0]
+        s_prime = self._sample_future(obs)                               # (K, B, obs_dim)
+        s_flat = s_prime.reshape(K * B, self.obs_dim)
+
+        # I_Φ(s) = E_{s'~𝒯}[Φ(s')]
+        I_phi = self.phi_fn(s_flat).reshape(K, B).mean(0)               # (B,)
+        V = self.phi_fn(obs) - I_phi.unsqueeze(-1)                       # (B, 1)
+
+        # Optional action-cost term: −α·g(s) − α·γ/(1−γ)·I_g(s)
+        if self.action_cost_alpha > 0 and self.act_cost_fn is not None:
+            alpha = self.action_cost_alpha
+            coeff = self.gamma / (1.0 - self.gamma)
+            with torch.no_grad():
+                I_g = self.act_cost_fn(s_flat).reshape(K, B).mean(0)    # (B,)
+                g_s = self.act_cost_fn(obs).squeeze(-1)                  # (B,)
+            V = V - alpha * (g_s + coeff * I_g).unsqueeze(-1)
+
+        return V
+
+    def nll_loss(self, anchor_obs: torch.Tensor, future_obs: torch.Tensor) -> torch.Tensor:
+        """NLL of observed future states under 𝒯(s'|s) = 𝒩(μ_θ(s), σ_θ²)."""
+        from torch.distributions import Normal
+        mu = self.mean_net(anchor_obs)
+        std = self.log_std.clamp(LOG_STD_MIN, LOG_STD_MAX).exp()
+        return -Normal(mu, std).log_prob(future_obs).sum(-1).mean()
+
+
 def make_critic(
     condition: str,
     obs_dim: int,
@@ -173,6 +259,7 @@ def make_critic(
     feature_dim: int = 64,
     action_cost_alpha: float = 0.0,
     gamma: float = 0.99,
+    n_mc_samples: int = 16,
 ) -> nn.Module:
     if condition == "A":
         return CriticA(obs_dim, hidden_dim)
@@ -185,4 +272,9 @@ def make_critic(
             raise ValueError("Condition C requires phi_fn — pass env_class.phi_torch.")
         return CriticC(obs_dim, phi_fn, hidden_dim, feature_dim=feature_dim,
                        action_cost_alpha=action_cost_alpha, gamma=gamma)
-    raise ValueError(f"Unknown condition: {condition!r}. Use 'A', 'B', or 'C'.")
+    elif condition == "D":
+        if phi_fn is None:
+            raise ValueError("Condition D requires phi_fn — pass env_class.phi_torch.")
+        return CriticD(obs_dim, phi_fn, hidden_dim, n_mc_samples=n_mc_samples,
+                       action_cost_alpha=action_cost_alpha, gamma=gamma)
+    raise ValueError(f"Unknown condition: {condition!r}. Use 'A', 'B', 'C', or 'D'.")

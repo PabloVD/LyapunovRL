@@ -30,11 +30,12 @@ ENV_REGISTRY: dict[str, type[LyapunovWrapper]] = {
     "Ant-v4": LyapunovAnt,
 }
 
-COLORS = {"A": "#3269FF", "B": "#E01A1D", "C": "#1BAA3E"}
+COLORS = {"A": "#3269FF", "B": "#E01A1D", "C": "#1BAA3E", "D": "#E8820C"}
 LABELS = {
     "A": "Condition A — standard critic",
     "B": "Condition B — Lyapunov structured",
     "C": "Condition C — bilinear kernel V=Φ−I",
+    "D": "Condition D — Gaussian kernel V=Φ−I",
 }
 
 plt.rcParams.update({
@@ -59,7 +60,7 @@ def load_tb_scalar(run_dir: str, tag: str) -> tuple[np.ndarray, np.ndarray]:
 
 def collect_curves(runs_dir: str, tag: str, n_seeds: int = 5):
     results = {}
-    for cond in ["A", "B", "C"]:
+    for cond in ["A", "B", "C", "D"]:
         seed_curves = []
         for seed in range(n_seeds):
             run_dir = os.path.join(runs_dir, f"condition_{cond}_seed_{seed}")
@@ -146,7 +147,7 @@ def plot_learning_curves(runs_dir: str, out_dir: str):
         scale = 1.0
 
     any_plotted = False
-    for cond in ["A", "B", "C"]:
+    for cond in ["A", "B", "C", "D"]:
         grid, mean, std = aligned[cond]
         if grid is None:
             continue
@@ -183,7 +184,7 @@ def plot_value_loss(runs_dir: str, out_dir: str):
         scale = 1.0
 
     any_plotted = False
-    for cond in ["A", "B", "C"]:
+    for cond in ["A", "B", "C", "D"]:
         grid, mean, std = aligned[cond]
         if grid is None:
             continue
@@ -224,7 +225,8 @@ def plot_value_heatmaps(run_names: dict[str, str], runs_dir: str,
     cond_specs = [
         ("A", "Condition A: V(s)"),
         ("B", "Condition B: V(s) = Φ + f"),
-        ("C", "Condition C: V(s) = Φ − I"),
+        ("C", "Condition C: V(s) = Φ − I (bilinear)"),
+        ("D", "Condition D: V(s) = Φ − I (Gaussian)"),
     ]
     n_cols = len(cond_specs) + 1  # +1 for Φ panel
     fig, axes = plt.subplots(1, n_cols, figsize=(5 * n_cols, 4))
@@ -240,8 +242,8 @@ def plot_value_heatmaps(run_names: dict[str, str], runs_dir: str,
             if os.path.exists(ckpt_path):
                 critic.load_state_dict(torch.load(ckpt_path, map_location=device,
                                                   weights_only=True))
-            # Load actor for CriticC so action_cost_fn can be wired in.
-            if condition == "C":
+            # Load actor for kernel critics so action_cost_fn can be wired in.
+            if condition in ("C", "D"):
                 actor_path = os.path.join(runs_dir, run_name, "actor.pt")
                 if os.path.exists(actor_path):
                     actor = Actor(env_class.obs_dim, env_class.act_dim).to(device)
@@ -297,7 +299,7 @@ def main():
     plot_learning_curves(env_runs_dir, out_dir)
     plot_value_loss(env_runs_dir, out_dir)
 
-    run_names = {c: f"condition_{c}_seed_0" for c in ["A", "B", "C"]}
+    run_names = {c: f"condition_{c}_seed_0" for c in ["A", "B", "C", "D"]}
     grid_supported = env_class.state_grid()[0] is not None
     any_ckpt = any(
         os.path.exists(os.path.join(env_runs_dir, rn, "critic.pt"))

@@ -32,6 +32,8 @@ class Config:
     lambda_nce: float = 1.0      # weight of InfoNCE contrastive loss (condition C only)
     feature_dim: int = 64        # kernel embedding dimension (condition C only)
     nce_context_size: int = 512  # number of context states used for kernel integration
+    lambda_nll: float = 1.0      # weight of NLL loss for Gaussian kernel (condition D only)
+    n_mc_samples: int = 16       # Monte Carlo samples for I(s) integration (condition D only)
     log_interval: int = 1       # log every N updates
     run_name: str = ""          # auto-set in train.py if empty
 
