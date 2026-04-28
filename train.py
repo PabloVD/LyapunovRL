@@ -66,7 +66,8 @@ def train(cfg: Config):
 
     trainer = PPOTrainer(cfg, device, writer,
                          obs_dim=env_class.obs_dim, act_dim=env_class.act_dim,
-                         phi_fn=env_class.phi_torch)
+                         phi_fn=env_class.phi_torch,
+                         action_cost_alpha=getattr(env_class, "k_action", 0.0))
 
     obs, _ = env.reset(seed=cfg.seed)
     n_updates = cfg.total_steps // cfg.T

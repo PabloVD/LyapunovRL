@@ -12,7 +12,8 @@ from ppo.buffer import RolloutBuffer
 class PPOTrainer:
     def __init__(self, cfg, device: torch.device, writer: SummaryWriter,
                  obs_dim: int, act_dim: int,
-                 phi_fn: Callable[[torch.Tensor], torch.Tensor] | None = None):
+                 phi_fn: Callable[[torch.Tensor], torch.Tensor] | None = None,
+                 action_cost_alpha: float = 0.0):
         self.cfg = cfg
         self.device = device
         self.writer = writer
@@ -21,7 +22,14 @@ class PPOTrainer:
         self.critic = make_critic(cfg.condition, obs_dim, cfg.hidden_dim,
                                   phi_fn=phi_fn,
                                   zero_init_residual=cfg.zero_init_residual,
-                                  feature_dim=cfg.feature_dim).to(device)
+                                  feature_dim=cfg.feature_dim,
+                                  action_cost_alpha=action_cost_alpha,
+                                  gamma=cfg.gamma).to(device)
+
+        # Give the kernel critic a reference to the actor's action-cost function
+        # so it can compute g(s) = ‖μ(s)‖² + Tr[Σ(s)] analytically.
+        if cfg.condition == "C" and action_cost_alpha > 0:
+            self.critic.act_cost_fn = self.actor.action_cost
 
         self.actor_opt = torch.optim.Adam(self.actor.parameters(), lr=cfg.lr)
         self.critic_opt = torch.optim.Adam(self.critic.parameters(), lr=cfg.lr)

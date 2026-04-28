@@ -40,3 +40,8 @@ class Actor(nn.Module):
         log_prob = dist.log_prob(actions).sum(-1, keepdim=True)
         entropy = dist.entropy().sum(-1, keepdim=True)
         return log_prob, entropy
+
+    def action_cost(self, obs: torch.Tensor) -> torch.Tensor:
+        """g(s) = E[‖a‖²] = ‖μ(s)‖² + Tr[Σ(s)] under the current Gaussian policy."""
+        dist = self.forward(obs)
+        return (dist.mean.pow(2) + dist.variance).sum(-1, keepdim=True)

@@ -113,6 +113,7 @@ class LyapunovCartPole(LyapunovWrapper):
     obs_dim = 4
     act_dim = 1
     action_clip = (-_FORCE_MAG, _FORCE_MAG)
+    k_action = 0.001
 
     def __init__(self, render_mode=None, native_reward: bool = False):
         super().__init__(
@@ -165,5 +166,5 @@ class LyapunovCartPole(LyapunovWrapper):
 
     def shaping_reward(self, obs, action, next_obs, terminated) -> dict[str, float]:
         return {
-            "action_penalty": -0.001 * float(np.sum(action ** 2)),
+            "action_penalty": -self.k_action * float(np.sum(action ** 2)),
         }

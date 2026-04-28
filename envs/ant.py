@@ -51,6 +51,7 @@ class LyapunovAnt(LyapunovWrapper):
     obs_dim = 27
     act_dim = 8
     action_clip = (-1.0, 1.0)
+    k_action = _ACTION_PENALTY
 
     # Class-level: set from train.py after each rollout when normalize_obs=True.
     obs_rms_mean: np.ndarray | None = None

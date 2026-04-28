@@ -114,14 +114,17 @@ def eval_policy(actor: Actor, env: LyapunovWrapper, n_episodes: int = 10, device
 
 # ── Value grid ────────────────────────────────────────────────────────────────
 
-def value_grid(critic, env_class: type[LyapunovWrapper], device, n=50):
+def value_grid(critic, env_class: type[LyapunovWrapper], device, n=50, actor=None):
     ax1, ax2, states = env_class.state_grid(n)
     if states is None:
         return None, None, None, None
     states_t = torch.tensor(states, device=device)
     with torch.no_grad():
-        # CriticC needs a context buffer; seed it from the grid states themselves.
+        # CriticC needs a context buffer; seed it from the grid states.
+        # Also wire in the actor's action_cost if the action-cost term is active.
         if hasattr(critic, "precompute_context"):
+            if actor is not None and hasattr(critic, "act_cost_fn"):
+                critic.act_cost_fn = actor.action_cost
             critic.precompute_context(states_t)
         phi_vals = env_class.phi_torch(states_t).cpu().numpy().reshape(n, n)
         v_vals = critic(states_t).cpu().numpy().reshape(n, n)
@@ -231,12 +234,21 @@ def plot_value_heatmaps(run_names: dict[str, str], runs_dir: str,
         run_name = run_names.get(condition)
         critic = make_critic(condition, obs_dim=obs_dim, hidden_dim=64,
                              phi_fn=env_class.phi_torch).to(device)
+        actor = None
         if run_name:
             ckpt_path = os.path.join(runs_dir, run_name, "critic.pt")
             if os.path.exists(ckpt_path):
                 critic.load_state_dict(torch.load(ckpt_path, map_location=device,
                                                   weights_only=True))
-        _ax1, _ax2, _phi, v_vals = value_grid(critic, env_class, device)
+            # Load actor for CriticC so action_cost_fn can be wired in.
+            if condition == "C":
+                actor_path = os.path.join(runs_dir, run_name, "actor.pt")
+                if os.path.exists(actor_path):
+                    actor = Actor(env_class.obs_dim, env_class.act_dim).to(device)
+                    actor.load_state_dict(torch.load(actor_path, map_location=device,
+                                                     weights_only=True))
+                    actor.eval()
+        _ax1, _ax2, _phi, v_vals = value_grid(critic, env_class, device, actor=actor)
         if _ax1 is not None:
             ax1, ax2, phi_vals = _ax1, _ax2, _phi
         if v_vals is None:
