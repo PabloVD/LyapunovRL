@@ -1,0 +1,45 @@
+# Ant-v4 — Lyapunov velocity-tracking experiment
+#
+# Task: drive the ant to move at 1.0 m/s forward while staying upright.
+# Lyapunov function: Φ(s) = (vx−1)² + 0.5·vy² + 5·max(0, 0.3−z)²
+# Reward: R_t = Φ(s_t) − Φ(s_{t+1})  (dense, shaped toward target gait)
+#
+# Run:
+#   python run_experiments.py --config configs/ant_lyapunov_velocity.yaml
+#   python run_experiments.py --config configs/ant_lyapunov_velocity.yaml --num_seeds 1 --total_steps 500000  # quick test
+
+env_id: Ant-v4
+target_velocity: 1.0    # m/s forward target for Φ
+
+# ── Observation normalisation ─────────────────────────────────────────────────
+# Critical for MuJoCo: obs mixes z (≈0.75), joint angles (rad), velocities (m/s).
+normalize_obs: true
+
+# ── Network ───────────────────────────────────────────────────────────────────
+# 256 hidden units for a 27-D obs space (vs 64 used in the toy envs).
+hidden_dim: 256
+
+# ── Training duration ─────────────────────────────────────────────────────────
+# 3M steps for convergence; the A/B gap is typically visible after ~1M.
+total_steps: 3000000
+T: 2048                 # rollout length per update
+
+# ── PPO ───────────────────────────────────────────────────────────────────────
+n_epochs: 10
+batch_size: 64          # 2048 / 64 = 32 minibatches per update
+gamma: 0.99
+lam: 0.95
+lr: 3.0e-4
+clip_eps: 0.2
+entropy_coef: 0.01
+vf_coef: 0.5
+max_grad_norm: 0.5
+
+# ── Condition B ───────────────────────────────────────────────────────────────
+# Zero-init residual so CriticB starts at V(s) ≈ Φ(s), then learns corrections.
+zero_init_residual: true
+
+# ── Misc ──────────────────────────────────────────────────────────────────────
+device: cuda
+native_reward: false
+log_interval: 1

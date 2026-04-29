@@ -15,6 +15,7 @@ from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 
 from config import Config
+from envs.ant import LyapunovAnt
 from envs.base import LyapunovWrapper
 from envs.cartpole import LyapunovCartPole
 from envs.pendulum import LyapunovPendulum
@@ -25,6 +26,7 @@ ENV_REGISTRY: dict[str, type[LyapunovWrapper]] = {
     "Pendulum-v1": LyapunovPendulum,
     "MountainCarContinuous-v0": LyapunovMountainCar,
     "CartPoleContinuous-v0": LyapunovCartPole,
+    "Ant-v4": LyapunovAnt,
 }
 
 
@@ -43,12 +45,29 @@ def train(cfg: Config):
     device = torch.device(cfg.device if torch.cuda.is_available() else "cpu")
 
     run_dir = f"runs/{cfg.env_id}/{cfg.run_name}"
+    cfg.save(f"{run_dir}/config.yaml")
     writer = SummaryWriter(log_dir=run_dir)
     env_class = ENV_REGISTRY[cfg.env_id]
+
+    # Apply target velocity to Ant before creating the env.
+    if hasattr(env_class, "_target_vx"):
+        env_class._target_vx = cfg.target_velocity
+
     env = env_class(native_reward=cfg.native_reward)
+
+    # Wrap with running-stats observation normalisation when requested.
+    # NormalizeObservation is applied OUTSIDE LyapunovWrapper so that reward
+    # computation (Φ(s_t) − Φ(s_{t+1})) always sees raw observations.
+    norm_env = None
+    if cfg.normalize_obs:
+        import gymnasium
+        norm_env = gymnasium.wrappers.NormalizeObservation(env)
+        env = norm_env
+
     trainer = PPOTrainer(cfg, device, writer,
                          obs_dim=env_class.obs_dim, act_dim=env_class.act_dim,
-                         phi_fn=env_class.phi_torch)
+                         phi_fn=env_class.phi_torch,
+                         action_cost_alpha=getattr(env_class, "k_action", 0.0))
 
     obs, _ = env.reset(seed=cfg.seed)
     n_updates = cfg.total_steps // cfg.T
@@ -114,6 +133,12 @@ def train(cfg: Config):
             obs_t = torch.tensor(obs, dtype=torch.float32, device=device).unsqueeze(0)
             last_value = trainer.critic(obs_t).squeeze().item()
 
+        # Sync normaliser stats into the env class so phi_torch can denormalise
+        # when condition B is used with normalize_obs.
+        if norm_env is not None and hasattr(env_class, "obs_rms_mean"):
+            env_class.obs_rms_mean = norm_env.obs_rms.mean.copy()
+            env_class.obs_rms_std = np.sqrt(norm_env.obs_rms.var + 1e-8)
+
         trainer.update(last_value)
 
         mean_r = np.mean(ep_rewards[-10:]) if ep_rewards else float("nan")
@@ -130,30 +155,30 @@ def train(cfg: Config):
 
 def parse_args() -> Config:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--condition", type=str, default="A", choices=["A", "B"])
-    parser.add_argument("--seed", type=int, default=0)
-    parser.add_argument("--total_steps", type=int, default=300_000)
-    parser.add_argument("--gamma", type=float, default=0.99)
-    parser.add_argument("--device", type=str, default="cuda")
-    parser.add_argument("--env_id", type=str, default="Pendulum-v1",
-                        choices=list(ENV_REGISTRY))
-    parser.add_argument("--native_reward", action="store_true",
+    parser.add_argument("--config", type=str, default=None,
+                        help="Path to a YAML config file. CLI flags override YAML values.")
+    parser.add_argument("--condition", type=str, default=None, choices=["A", "B", "C", "D"])
+    parser.add_argument("--seed", type=int, default=None)
+    parser.add_argument("--total_steps", type=int, default=None)
+    parser.add_argument("--gamma", type=float, default=None)
+    parser.add_argument("--device", type=str, default=None)
+    parser.add_argument("--env_id", type=str, default=None, choices=list(ENV_REGISTRY))
+    parser.add_argument("--native_reward", action="store_true", default=None,
                         help="Use the env's original reward instead of Lyapunov shaping.")
-    parser.add_argument("--zero_init_residual", action="store_true",
-                        help="Zero-init the residual head in CriticB so V≈Φ at training start.")
-    parser.add_argument("--run_name", type=str, default="")
+    parser.add_argument("--normalize_obs", action="store_true", default=None,
+                        help="Wrap env with running-stats NormalizeObservation (recommended for MuJoCo).")
+    parser.add_argument("--target_velocity", type=float, default=None,
+                        help="Target forward speed for Ant-v4 Lyapunov function (m/s).")
+    parser.add_argument("--run_name", type=str, default=None)
     args = parser.parse_args()
-    cfg = Config(
-        condition=args.condition,
-        seed=args.seed,
-        total_steps=args.total_steps,
-        gamma=args.gamma,
-        device=args.device,
-        env_id=args.env_id,
-        native_reward=args.native_reward,
-        zero_init_residual=args.zero_init_residual,
-        run_name=args.run_name,
-    )
+
+    cfg = Config.from_yaml(args.config) if args.config else Config()
+
+    overrides = {k: v for k, v in vars(args).items()
+                 if k != "config" and v is not None}
+    for k, v in overrides.items():
+        setattr(cfg, k, v)
+
     return cfg
 
 

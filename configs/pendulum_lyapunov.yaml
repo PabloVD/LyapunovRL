@@ -1,0 +1,45 @@
+# Pendulum-v1 — Lyapunov swing-up experiment
+#
+# Task: swing the pendulum to upright (θ=0, θ̇=0) and hold it.
+# Lyapunov function: Φ(s) = (1 − cos θ) + 0.5·θ̇²
+# Reward: R_t = Φ(s_t) − Φ(s_{t+1}) − 0.001·u²
+#
+# Key differences from default config:
+#   gamma: 0.9   — shorter horizon reduces noise amplification from oscillating Φ
+#   lr:    1e-3  — standard for Pendulum-v1 (vs 3e-4 default)
+#   total_steps: 1_000_000 — Lyapunov reward has higher per-step variance than
+#                native reward; 300k is too few for consistent convergence.
+#
+# Run:
+#   python run_experiments.py --config configs/pendulum_lyapunov.yaml
+#   python train.py --config configs/pendulum_lyapunov.yaml --condition A --seed 0
+
+env_id: Pendulum-v1
+
+# ── Network ───────────────────────────────────────────────────────────────────
+# 64 hidden units is fine for a 3-D obs space.
+hidden_dim: 64
+
+# ── Training duration ─────────────────────────────────────────────────────────
+total_steps: 500000
+T: 2048
+
+# ── PPO ───────────────────────────────────────────────────────────────────────
+n_epochs: 10
+batch_size: 64
+gamma: 0.9          # shorter horizon; Pendulum reward is dense so low γ works
+lam: 0.95
+lr: 1.0e-3
+clip_eps: 0.2
+entropy_coef: 0.0   # Pendulum needs no entropy bonus — action space is small
+vf_coef: 0.5
+max_grad_norm: 0.5
+
+# ── Condition B ───────────────────────────────────────────────────────────────
+zero_init_residual: false
+
+# ── Misc ──────────────────────────────────────────────────────────────────────
+device: cuda
+native_reward: false
+normalize_obs: false  # obs is [cos θ, sin θ, θ̇]; Φ is computed on raw obs
+log_interval: 1
