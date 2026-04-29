@@ -140,7 +140,7 @@ def plot_learning_curves(runs_dir: str, out_dir: str):
 
     # Compute a shared normalisation scale from all conditions so the
     # y-axis is readable regardless of the Lyapunov function's magnitude.
-    aligned = {c: align_curves(curves[c]) for c in ["A", "B", "C"]}
+    aligned = {c: align_curves(curves[c]) for c in ["A", "B", "C", "D"]}
     all_means = [m for _, m, _ in aligned.values() if m is not None]
     scale = max(np.abs(m).max() for m in all_means) if all_means else 1.0
     if scale == 0:
@@ -177,7 +177,7 @@ def plot_value_loss(runs_dir: str, out_dir: str):
     curves = collect_curves(runs_dir, "loss/value")
     fig, ax = plt.subplots(figsize=(9, 5))
 
-    aligned = {c: align_curves(curves[c]) for c in ["A", "B", "C"]}
+    aligned = {c: align_curves(curves[c]) for c in ["A", "B", "C", "D"]}
     all_means = [m for _, m, _ in aligned.values() if m is not None]
     scale = max(m.max() for m in all_means) if all_means else 1.0
     if scale == 0:

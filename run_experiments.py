@@ -70,7 +70,7 @@ def main():
     elif args.condition:
         conditions = [args.condition]
     else:
-        conditions = ["A", "B", "C", "D"]
+        conditions = ["A", "B"]
 
     exp_id = args.exp_id or datetime.now().strftime("%Y%m%d_%H%M%S")
     runs = [
